@@ -10,6 +10,21 @@ const {
   isAccountDisabledError
 } = require('../utils/errorSanitizer')
 
+const maskSensitiveHeaders = (headers) => {
+  if (!headers || typeof headers !== 'object') {
+    return {}
+  }
+
+  const sensitiveKeys = new Set(['authorization', 'x-api-key', 'cookie', 'set-cookie'])
+  const masked = {}
+
+  for (const [key, value] of Object.entries(headers)) {
+    masked[key] = sensitiveKeys.has(key.toLowerCase()) ? '[REDACTED]' : value
+  }
+
+  return masked
+}
+
 class ClaudeConsoleRelayService {
   constructor() {
     this.defaultUserAgent = 'claude-cli/1.0.69 (external, cli)'
@@ -193,6 +208,15 @@ class ClaudeConsoleRelayService {
       } else {
         logger.debug('[DEBUG] No beta header to add')
       }
+
+      const payloadString = JSON.stringify(modifiedRequestBody)
+
+      logger.info('📤 Prepared Claude Console API request payload', {
+        accountId,
+        endpoint: requestConfig.url,
+        headers: maskSensitiveHeaders(requestConfig.headers),
+        body: payloadString
+      })
 
       // 发送请求
       logger.debug(
@@ -568,6 +592,15 @@ class ClaudeConsoleRelayService {
       if (requestOptions.betaHeader) {
         requestConfig.headers['anthropic-beta'] = requestOptions.betaHeader
       }
+
+      const payloadString = JSON.stringify(body)
+
+      logger.info('📤 Prepared Claude Console stream request payload', {
+        accountId,
+        endpoint: requestConfig.url,
+        headers: maskSensitiveHeaders(requestConfig.headers),
+        body: payloadString
+      })
 
       // 发送请求
       const request = axios(requestConfig)

@@ -16,6 +16,21 @@ const runtimeAddon = require('../utils/runtimeAddon')
 
 const RUNTIME_EVENT_FMT_CLAUDE_REQ = 'fmtClaudeReq'
 
+const maskSensitiveHeaders = (headers) => {
+  if (!headers || typeof headers !== 'object') {
+    return {}
+  }
+
+  const sensitiveKeys = new Set(['authorization', 'x-api-key', 'cookie', 'set-cookie'])
+  const masked = {}
+
+  for (const [key, value] of Object.entries(headers)) {
+    masked[key] = sensitiveKeys.has(key.toLowerCase()) ? '[REDACTED]' : value
+  }
+
+  return masked
+}
+
 class ClaudeRelayService {
   constructor() {
     this.claudeApiUrl = config.claude.apiUrl
@@ -1029,7 +1044,7 @@ class ClaudeRelayService {
       logger.info('📤 Prepared Claude API request payload', {
         accountId,
         endpoint: `${options.method} ${options.path}`,
-        headers: options.headers,
+        headers: maskSensitiveHeaders(options.headers),
         body: payloadString
       })
 
@@ -1353,7 +1368,7 @@ class ClaudeRelayService {
       logger.info('📤 Prepared Claude stream request payload', {
         accountId,
         endpoint: `${options.method} ${options.path}`,
-        headers: options.headers,
+        headers: maskSensitiveHeaders(options.headers),
         body: payloadString
       })
 
