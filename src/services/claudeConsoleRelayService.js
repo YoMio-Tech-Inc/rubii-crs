@@ -1,4 +1,5 @@
 const axios = require('axios')
+const crypto = require('crypto')
 const { v4: uuidv4 } = require('uuid')
 const claudeConsoleAccountService = require('./claudeConsoleAccountService')
 const claudeCodeHeadersService = require('./claudeCodeHeadersService')
@@ -117,6 +118,7 @@ class ClaudeConsoleRelayService {
         modifiedRequestBody,
         account
       )
+      const finalPayload = this._ensureMetadata(consolePayload, accountId)
 
       // 模型兼容性检查已经在调度器中完成，这里不需要再检查
 
@@ -179,7 +181,7 @@ class ClaudeConsoleRelayService {
       const requestConfig = {
         method: 'POST',
         url: apiEndpoint,
-        data: consolePayload,
+        data: finalPayload,
         headers: requestHeaders,
         timeout: config.requestTimeout || 600000,
         signal: abortController.signal,
@@ -215,7 +217,7 @@ class ClaudeConsoleRelayService {
         logger.debug('[DEBUG] No beta header to add')
       }
 
-      const payloadString = JSON.stringify(consolePayload)
+      const payloadString = JSON.stringify(finalPayload)
 
       logger.info('📤 Prepared Claude Console API request payload', {
         accountId,
@@ -478,6 +480,7 @@ class ClaudeConsoleRelayService {
       }
 
       const consolePayload = claudeRelayService._processRequestBody(modifiedRequestBody, account)
+      const finalPayload = this._ensureMetadata(consolePayload, accountId)
 
       // 模型兼容性检查已经在调度器中完成，这里不需要再检查
 
@@ -486,7 +489,7 @@ class ClaudeConsoleRelayService {
 
       // 发送流式请求
       await this._makeClaudeConsoleStreamRequest(
-        consolePayload,
+        finalPayload,
         account,
         proxyAgent,
         clientHeaders,
@@ -543,6 +546,8 @@ class ClaudeConsoleRelayService {
     streamTransformer = null,
     requestOptions = {}
   ) {
+    const payload = this._ensureMetadata(body, accountId)
+
     const { headers: preparedHeaders } = await this._prepareRequestHeaders(
       clientHeaders,
       accountId,
@@ -571,7 +576,7 @@ class ClaudeConsoleRelayService {
       const requestConfig = {
         method: 'POST',
         url: apiEndpoint,
-        data: body,
+        data: payload,
         headers: requestHeaders,
         timeout: config.requestTimeout || 600000,
         responseType: 'stream',
@@ -600,7 +605,7 @@ class ClaudeConsoleRelayService {
         requestConfig.headers['anthropic-beta'] = requestOptions.betaHeader
       }
 
-      const payloadString = JSON.stringify(body)
+      const payloadString = JSON.stringify(payload)
 
       logger.info('📤 Prepared Claude Console stream request payload', {
         accountId,
@@ -1053,6 +1058,27 @@ class ClaudeConsoleRelayService {
       userAgent: selectedUserAgent,
       isClientClaudeCli
     }
+  }
+
+  _ensureMetadata(body, accountId) {
+    if (!body || typeof body !== 'object') {
+      return body
+    }
+
+    if (!body.metadata || typeof body.metadata !== 'object') {
+      body.metadata = {}
+    }
+
+    if (!body.metadata.user_id || typeof body.metadata.user_id !== 'string') {
+      const clientHash = crypto.randomBytes(32).toString('hex')
+      const sessionId = uuidv4()
+      body.metadata.user_id = `user_${clientHash}_account__session_${sessionId}`
+      logger.debug(
+        `[DEBUG] Generated metadata.user_id for Claude Console account ${accountId}: ${body.metadata.user_id}`
+      )
+    }
+
+    return body
   }
 
   // 🔧 过滤客户端请求头
