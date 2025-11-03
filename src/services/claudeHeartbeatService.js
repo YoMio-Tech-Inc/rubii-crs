@@ -232,17 +232,16 @@ class ClaudeHeartbeatService {
         axiosConfig.proxy = false
       }
 
-      const messages = [
-        options.includeSystemPrompt
-          ? { role: 'system', content: options.systemPrompt }
-          : null,
-        { role: 'user', content: options.prompt }
-      ].filter(Boolean)
+      const messages = [{ role: 'user', content: options.prompt }]
 
       const payload = {
         model: options.model,
         max_tokens: options.maxTokens,
         messages
+      }
+
+      if (options.includeSystemPrompt && options.systemPrompt) {
+        payload.system = options.systemPrompt
       }
 
       await axios.post(apiUrl, payload, axiosConfig)
