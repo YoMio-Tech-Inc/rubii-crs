@@ -113,7 +113,7 @@ class ClaudeConsoleRelayService {
         ...requestBody,
         model: mappedModel
       }
-      const processedRequestBody = claudeRelayService._processRequestBody(
+      const consolePayload = claudeRelayService._processRequestBody(
         modifiedRequestBody,
         account
       )
@@ -179,7 +179,7 @@ class ClaudeConsoleRelayService {
       const requestConfig = {
         method: 'POST',
         url: apiEndpoint,
-        data: processedRequestBody,
+        data: consolePayload,
         headers: requestHeaders,
         timeout: config.requestTimeout || 600000,
         signal: abortController.signal,
@@ -215,7 +215,7 @@ class ClaudeConsoleRelayService {
         logger.debug('[DEBUG] No beta header to add')
       }
 
-      const payloadString = JSON.stringify(processedRequestBody)
+      const payloadString = JSON.stringify(consolePayload)
 
       logger.info('📤 Prepared Claude Console API request payload', {
         accountId,
@@ -477,6 +477,8 @@ class ClaudeConsoleRelayService {
         model: mappedModel
       }
 
+      const consolePayload = claudeRelayService._processRequestBody(modifiedRequestBody, account)
+
       // 模型兼容性检查已经在调度器中完成，这里不需要再检查
 
       // 创建代理agent
@@ -484,7 +486,7 @@ class ClaudeConsoleRelayService {
 
       // 发送流式请求
       await this._makeClaudeConsoleStreamRequest(
-        processedRequestBody,
+        consolePayload,
         account,
         proxyAgent,
         clientHeaders,
