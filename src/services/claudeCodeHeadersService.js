@@ -24,7 +24,7 @@ class ClaudeCodeHeadersService {
           'x-stainless-runtime-version': 'v20.18.1',
           'anthropic-dangerous-direct-browser-access': 'true',
           'x-app': 'cli',
-          'user-agent': 'claude-cli/2.0.19 (external, cli)',
+          'user-agent': 'claude-cli/2.0.31 (external, cli)',
           'anthropic-beta':
             'oauth-2025-04-20,interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14',
           'x-stainless-helper-method': 'stream',
@@ -47,7 +47,7 @@ class ClaudeCodeHeadersService {
       'x-stainless-runtime-version': 'v20.18.1',
       'anthropic-dangerous-direct-browser-access': 'true',
       'x-app': 'cli',
-      'user-agent': 'claude-cli/2.0.19 (external, cli)',
+      'user-agent': 'claude-cli/2.0.31 (external, cli)',
       'anthropic-beta':
         'oauth-2025-04-20,interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14',
       'x-stainless-helper-method': 'stream',
