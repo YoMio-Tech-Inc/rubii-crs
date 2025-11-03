@@ -2382,6 +2382,9 @@ router.post('/claude-accounts', authenticateAdmin, async (req, res) => {
       extInfo: extInfo || null
     })
 
+    // 提前为新账号分配一份默认的 Claude Code 指纹
+    await claudeCodeHeadersService.getOrAssignDefaultHeaders(newAccount.id)
+
     // 如果是分组类型，将账户添加到分组
     if (accountType === 'group') {
       if (groupIds && groupIds.length > 0) {

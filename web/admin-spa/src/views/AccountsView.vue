@@ -1851,7 +1851,9 @@ const sortOptions = ref([
   { value: 'dailyTokens', label: '按今日Token排序', icon: 'fa-coins' },
   { value: 'dailyRequests', label: '按今日请求数排序', icon: 'fa-chart-line' },
   { value: 'totalTokens', label: '按总Token排序', icon: 'fa-database' },
-  { value: 'lastUsed', label: '按最后使用排序', icon: 'fa-clock' }
+  { value: 'lastUsed', label: '按最后使用排序', icon: 'fa-clock' },
+  { value: 'createdAtDesc', label: '按添加时间（新到旧）', icon: 'fa-calendar-plus' },
+  { value: 'createdAtAsc', label: '按添加时间（旧到新）', icon: 'fa-calendar-minus' }
 ])
 
 const platformOptions = ref([
@@ -2034,6 +2036,13 @@ const sortedAccounts = computed(() => {
     if (accountsSortBy.value === 'lastUsed') {
       aVal = a.lastUsedAt ? new Date(a.lastUsedAt).getTime() : 0
       bVal = b.lastUsedAt ? new Date(b.lastUsedAt).getTime() : 0
+    }
+
+    if (accountsSortBy.value === 'createdAt') {
+      const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0
+      const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0
+      aVal = Number.isFinite(aTime) ? aTime : 0
+      bVal = Number.isFinite(bTime) ? bTime : 0
     }
 
     // 处理状态
@@ -3746,17 +3755,23 @@ watch(
 
 // 监听排序选择变化
 watch(accountSortBy, (newVal) => {
-  const fieldMap = {
-    name: 'name',
-    dailyTokens: 'dailyTokens',
-    dailyRequests: 'dailyRequests',
-    totalTokens: 'totalTokens',
-    lastUsed: 'lastUsed'
+  const optionMap = {
+    name: { field: 'name', order: 'asc' },
+    dailyTokens: { field: 'dailyTokens', order: 'asc' },
+    dailyRequests: { field: 'dailyRequests', order: 'asc' },
+    totalTokens: { field: 'totalTokens', order: 'asc' },
+    lastUsed: { field: 'lastUsed', order: 'asc' },
+    createdAtDesc: { field: 'createdAt', order: 'desc' },
+    createdAtAsc: { field: 'createdAt', order: 'asc' }
   }
 
-  if (fieldMap[newVal]) {
-    sortAccounts(fieldMap[newVal])
+  const option = optionMap[newVal]
+  if (!option) {
+    return
   }
+
+  accountsSortBy.value = option.field
+  accountsSortOrder.value = option.order
 })
 
 watch(currentPage, () => {

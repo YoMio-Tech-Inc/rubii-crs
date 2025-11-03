@@ -3,25 +3,57 @@
  * 负责存储和管理不同账号使用的 Claude Code headers
  */
 
+const { randomInt } = require('crypto')
 const redis = require('../models/redis')
 const logger = require('../utils/logger')
 
 class ClaudeCodeHeadersService {
   constructor() {
+    this.headerProfiles = [
+      {
+        id: 'mac-arm64-node20',
+        headers: {
+          accept: 'application/json',
+          'x-stainless-retry-count': '0',
+          'x-stainless-timeout': '600',
+          'x-stainless-lang': 'js',
+          'x-stainless-package-version': '0.60.0',
+          'x-stainless-os': 'MacOS',
+          'x-stainless-arch': 'arm64',
+          'x-stainless-runtime': 'node',
+          'x-stainless-runtime-version': 'v20.18.1',
+          'anthropic-dangerous-direct-browser-access': 'true',
+          'x-app': 'cli',
+          'user-agent': 'claude-cli/2.0.19 (external, cli)',
+          'anthropic-beta':
+            'oauth-2025-04-20,interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14',
+          'x-stainless-helper-method': 'stream',
+          'accept-language': '*',
+          'sec-fetch-mode': 'cors',
+          'accept-encoding': 'br, gzip, deflate'
+        }
+      }
+    ]
+
     this.defaultHeaders = {
+      accept: 'application/json',
       'x-stainless-retry-count': '0',
-      'x-stainless-timeout': '60',
+      'x-stainless-timeout': '600',
       'x-stainless-lang': 'js',
-      'x-stainless-package-version': '0.55.1',
-      'x-stainless-os': 'Windows',
-      'x-stainless-arch': 'x64',
+      'x-stainless-package-version': '0.60.0',
+      'x-stainless-os': 'MacOS',
+      'x-stainless-arch': 'arm64',
       'x-stainless-runtime': 'node',
-      'x-stainless-runtime-version': 'v20.19.2',
+      'x-stainless-runtime-version': 'v20.18.1',
       'anthropic-dangerous-direct-browser-access': 'true',
       'x-app': 'cli',
-      'user-agent': 'claude-cli/1.0.57 (external, cli)',
+      'user-agent': 'claude-cli/2.0.19 (external, cli)',
+      'anthropic-beta':
+        'oauth-2025-04-20,interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14',
+      'x-stainless-helper-method': 'stream',
       'accept-language': '*',
-      'sec-fetch-mode': 'cors'
+      'sec-fetch-mode': 'cors',
+      'accept-encoding': 'br, gzip, deflate'
     }
 
     // 需要捕获的 Claude Code 特定 headers
@@ -37,10 +69,88 @@ class ClaudeCodeHeadersService {
       'anthropic-dangerous-direct-browser-access',
       'x-app',
       'user-agent',
+      'anthropic-beta',
+      'x-stainless-helper-method',
+      'accept',
       'accept-language',
       'sec-fetch-mode',
       'accept-encoding'
     ]
+  }
+
+  cloneHeaders(headers) {
+    return JSON.parse(JSON.stringify(headers || {}))
+  }
+
+  _getDefaultHeadersKey(accountId) {
+    return `claude_code_default_headers:${accountId}`
+  }
+
+  _pickRandomProfile() {
+    if (!Array.isArray(this.headerProfiles) || this.headerProfiles.length === 0) {
+      return {
+        profileId: 'default',
+        headers: this.cloneHeaders(this.defaultHeaders)
+      }
+    }
+
+    const index = randomInt(this.headerProfiles.length)
+    const profile = this.headerProfiles[index] || {}
+    return {
+      profileId: profile.id || `profile-${index}`,
+      headers: this.cloneHeaders(profile.headers || this.defaultHeaders)
+    }
+  }
+
+  async getOrAssignDefaultHeaders(accountId) {
+    if (!accountId) {
+      return {
+        headers: this.cloneHeaders(this.defaultHeaders),
+        profileId: 'fallback'
+      }
+    }
+
+    try {
+      const client = redis.getClient()
+      const key = this._getDefaultHeadersKey(accountId)
+      const cached = await client.get(key)
+
+      if (cached) {
+        const parsed = JSON.parse(cached)
+        if (parsed && parsed.headers) {
+          return {
+            headers: this.cloneHeaders(parsed.headers),
+            profileId: parsed.profileId || 'assigned'
+          }
+        }
+      }
+
+      const { headers, profileId } = this._pickRandomProfile()
+      const payload = {
+        headers,
+        profileId,
+        assignedAt: new Date().toISOString()
+      }
+
+      await client.set(key, JSON.stringify(payload))
+      logger.debug(`📋 Assigned default Claude Code headers for account ${accountId}:`, {
+        userAgent: headers['user-agent'],
+        os: headers['x-stainless-os'],
+        arch: headers['x-stainless-arch'],
+        profileId
+      })
+
+      return { headers, profileId }
+    } catch (error) {
+      logger.warn(
+        `⚠️ Failed to assign default Claude Code headers for account ${accountId}:`,
+        error
+      )
+      return {
+        headers: this.cloneHeaders(this.defaultHeaders),
+        profileId: 'fallback-error'
+      }
+    }
   }
 
   /**
@@ -163,18 +273,21 @@ class ClaudeCodeHeadersService {
 
       if (data) {
         const parsed = JSON.parse(data)
+        const headers = this.cloneHeaders(parsed.headers)
         logger.debug(
           `📋 Retrieved Claude Code headers for account ${accountId}, version: ${parsed.version}`
         )
-        return parsed.headers
+        return headers
       }
 
-      // 返回默认 headers
-      logger.debug(`📋 Using default Claude Code headers for account ${accountId}`)
-      return this.defaultHeaders
+      const { headers, profileId } = await this.getOrAssignDefaultHeaders(accountId)
+      logger.debug(
+        `📋 Using assigned default Claude Code headers for account ${accountId} (profile: ${profileId})`
+      )
+      return headers
     } catch (error) {
       logger.error(`❌ Failed to get Claude Code headers for account ${accountId}:`, error)
-      return this.defaultHeaders
+      return this.cloneHeaders(this.defaultHeaders)
     }
   }
 
@@ -183,8 +296,11 @@ class ClaudeCodeHeadersService {
    */
   async clearAccountHeaders(accountId) {
     try {
+      const client = redis.getClient()
       const key = `claude_code_headers:${accountId}`
-      await redis.getClient().del(key)
+      const defaultKey = this._getDefaultHeadersKey(accountId)
+      await client.del(key)
+      await client.del(defaultKey)
       logger.info(`🗑️ Cleared Claude Code headers for account ${accountId}`)
     } catch (error) {
       logger.error(`❌ Failed to clear Claude Code headers for account ${accountId}:`, error)
