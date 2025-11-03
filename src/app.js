@@ -10,6 +10,7 @@ const config = require('../config/config')
 const logger = require('./utils/logger')
 const redis = require('./models/redis')
 const pricingService = require('./services/pricingService')
+const claudeHeartbeatService = require('./services/claudeHeartbeatService')
 const cacheMonitor = require('./utils/cacheMonitor')
 
 // Import routes
@@ -620,6 +621,13 @@ class Application {
     }, 60000) // 每分钟执行一次
 
     logger.info('🔢 Concurrency cleanup task started (running every 1 minute)')
+
+    // 🔔 启动 Claude 心跳任务（按配置的扫描频率巡检）
+    try {
+      claudeHeartbeatService.start()
+    } catch (error) {
+      logger.error('❌ Failed to start Claude heartbeat service:', error)
+    }
   }
 
   setupGracefulShutdown() {

@@ -53,6 +53,23 @@ const config = {
         // 验证配置值：限制在0-1440分钟(24小时)内
         return Math.max(0, Math.min(minutes, 1440))
       })()
+    },
+    heartbeat: {
+      enabled: process.env.CLAUDE_HEARTBEAT_ENABLED === 'true',
+      model: process.env.CLAUDE_HEARTBEAT_MODEL || '',
+      prompt: process.env.CLAUDE_HEARTBEAT_PROMPT || '',
+      maxTokens: parseInt(process.env.CLAUDE_HEARTBEAT_MAX_TOKENS) || 32,
+      timeoutMs: parseInt(process.env.CLAUDE_HEARTBEAT_TIMEOUT_MS) || 15000,
+      includeSystemPrompt: process.env.CLAUDE_HEARTBEAT_INCLUDE_SYSTEM_PROMPT !== 'false',
+      systemPrompt:
+        process.env.CLAUDE_HEARTBEAT_SYSTEM_PROMPT ||
+        'You are performing an availability check. Reply briefly that you are online.',
+      endpoint: process.env.CLAUDE_HEARTBEAT_ENDPOINT || '',
+      userAgent: process.env.CLAUDE_HEARTBEAT_USER_AGENT || 'claude-heartbeat/1.0.0',
+      scanIntervalMs: parseInt(process.env.CLAUDE_HEARTBEAT_SCAN_INTERVAL_MS) || 60000,
+      usageRefreshMaxAgeMs:
+        parseInt(process.env.CLAUDE_HEARTBEAT_USAGE_REFRESH_MAX_AGE_MS) || 120000,
+      cooldownMinutes: parseInt(process.env.CLAUDE_HEARTBEAT_COOLDOWN_MINUTES) || 10
     }
   },
 
