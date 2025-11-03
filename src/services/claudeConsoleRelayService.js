@@ -1,6 +1,8 @@
 const axios = require('axios')
 const { v4: uuidv4 } = require('uuid')
 const claudeConsoleAccountService = require('./claudeConsoleAccountService')
+const claudeCodeHeadersService = require('./claudeCodeHeadersService')
+const claudeRelayService = require('./claudeRelayService')
 const redis = require('../models/redis')
 const logger = require('../utils/logger')
 const config = require('../../config/config')
@@ -111,6 +113,10 @@ class ClaudeConsoleRelayService {
         ...requestBody,
         model: mappedModel
       }
+      const processedRequestBody = claudeRelayService._processRequestBody(
+        modifiedRequestBody,
+        account
+      )
 
       // 模型兼容性检查已经在调度器中完成，这里不需要再检查
 
@@ -153,28 +159,28 @@ class ClaudeConsoleRelayService {
       logger.debug(`[DEBUG] Options passed to relayRequest: ${JSON.stringify(options)}`)
       logger.debug(`[DEBUG] Client headers received: ${JSON.stringify(clientHeaders)}`)
 
-      // 过滤客户端请求头
-      const filteredHeaders = this._filterClientHeaders(clientHeaders)
-      logger.debug(`[DEBUG] Filtered client headers: ${JSON.stringify(filteredHeaders)}`)
+      const { headers: preparedHeaders } = await this._prepareRequestHeaders(
+        clientHeaders,
+        accountId,
+        account
+      )
 
-      // 决定使用的 User-Agent：优先使用账户自定义的，否则透传客户端的，最后才使用默认值
-      const userAgent =
-        account.userAgent ||
-        clientHeaders?.['user-agent'] ||
-        clientHeaders?.['User-Agent'] ||
-        this.defaultUserAgent
+      const requestHeaders = {
+        'Content-Type': 'application/json',
+        'anthropic-version': '2023-06-01',
+        ...preparedHeaders
+      }
+
+      // 确保 User-Agent 使用统一大小写
+      requestHeaders['User-Agent'] = requestHeaders['User-Agent'] || requestHeaders['user-agent']
+      requestHeaders['user-agent'] = requestHeaders['user-agent'] || requestHeaders['User-Agent']
 
       // 准备请求配置
       const requestConfig = {
         method: 'POST',
         url: apiEndpoint,
-        data: modifiedRequestBody,
-        headers: {
-          'Content-Type': 'application/json',
-          'anthropic-version': '2023-06-01',
-          'User-Agent': userAgent,
-          ...filteredHeaders
-        },
+        data: processedRequestBody,
+        headers: requestHeaders,
         timeout: config.requestTimeout || 600000,
         signal: abortController.signal,
         validateStatus: () => true // 接受所有状态码
@@ -209,7 +215,7 @@ class ClaudeConsoleRelayService {
         logger.debug('[DEBUG] No beta header to add')
       }
 
-      const payloadString = JSON.stringify(modifiedRequestBody)
+      const payloadString = JSON.stringify(processedRequestBody)
 
       logger.info('📤 Prepared Claude Console API request payload', {
         accountId,
@@ -478,7 +484,7 @@ class ClaudeConsoleRelayService {
 
       // 发送流式请求
       await this._makeClaudeConsoleStreamRequest(
-        modifiedRequestBody,
+        processedRequestBody,
         account,
         proxyAgent,
         clientHeaders,
@@ -535,6 +541,21 @@ class ClaudeConsoleRelayService {
     streamTransformer = null,
     requestOptions = {}
   ) {
+    const { headers: preparedHeaders } = await this._prepareRequestHeaders(
+      clientHeaders,
+      accountId,
+      account
+    )
+
+    const requestHeaders = {
+      'Content-Type': 'application/json',
+      'anthropic-version': '2023-06-01',
+      ...preparedHeaders
+    }
+
+    requestHeaders['User-Agent'] = requestHeaders['User-Agent'] || requestHeaders['user-agent']
+    requestHeaders['user-agent'] = requestHeaders['user-agent'] || requestHeaders['User-Agent']
+
     return new Promise((resolve, reject) => {
       let aborted = false
 
@@ -544,28 +565,12 @@ class ClaudeConsoleRelayService {
 
       logger.debug(`🎯 Final API endpoint for stream: ${apiEndpoint}`)
 
-      // 过滤客户端请求头
-      const filteredHeaders = this._filterClientHeaders(clientHeaders)
-      logger.debug(`[DEBUG] Filtered client headers: ${JSON.stringify(filteredHeaders)}`)
-
-      // 决定使用的 User-Agent：优先使用账户自定义的，否则透传客户端的，最后才使用默认值
-      const userAgent =
-        account.userAgent ||
-        clientHeaders?.['user-agent'] ||
-        clientHeaders?.['User-Agent'] ||
-        this.defaultUserAgent
-
       // 准备请求配置
       const requestConfig = {
         method: 'POST',
         url: apiEndpoint,
         data: body,
-        headers: {
-          'Content-Type': 'application/json',
-          'anthropic-version': '2023-06-01',
-          'User-Agent': userAgent,
-          ...filteredHeaders
-        },
+        headers: requestHeaders,
         timeout: config.requestTimeout || 600000,
         responseType: 'stream',
         validateStatus: () => true // 接受所有状态码
@@ -1006,6 +1011,46 @@ class ClaudeConsoleRelayService {
         aborted = true
       })
     })
+  }
+
+  _isClaudeCliUserAgent(userAgent) {
+    if (typeof userAgent !== 'string') {
+      return false
+    }
+
+    return /^claude-cli\//i.test(userAgent.trim())
+  }
+
+  async _prepareRequestHeaders(clientHeaders, accountId, account) {
+    const filteredHeaders = this._filterClientHeaders(clientHeaders)
+    logger.debug(`[DEBUG] Filtered client headers: ${JSON.stringify(filteredHeaders)}`)
+
+    const defaultHeaders = await claudeCodeHeadersService.getAccountHeaders(accountId)
+    const incomingUserAgent =
+      clientHeaders?.['user-agent'] || clientHeaders?.['User-Agent'] || ''
+    const isClientClaudeCli = this._isClaudeCliUserAgent(incomingUserAgent)
+
+    const preparedHeaders = { ...defaultHeaders }
+    const selectedUserAgent =
+      account?.userAgent ||
+      (isClientClaudeCli ? incomingUserAgent : null) ||
+      preparedHeaders['user-agent'] ||
+      this.defaultUserAgent
+
+    preparedHeaders['user-agent'] = selectedUserAgent
+    preparedHeaders['User-Agent'] = selectedUserAgent
+
+    let finalHeaders = preparedHeaders
+
+    if (isClientClaudeCli) {
+      finalHeaders = { ...finalHeaders, ...filteredHeaders }
+    }
+
+    return {
+      headers: finalHeaders,
+      userAgent: selectedUserAgent,
+      isClientClaudeCli
+    }
   }
 
   // 🔧 过滤客户端请求头
