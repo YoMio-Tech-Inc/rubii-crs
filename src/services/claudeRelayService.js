@@ -1024,6 +1024,15 @@ class ClaudeRelayService {
         options.headers['anthropic-beta'] = betaHeader
       }
 
+      const payloadString = JSON.stringify(requestPayload)
+
+      logger.info('📤 Prepared Claude API request payload', {
+        accountId,
+        endpoint: `${options.method} ${options.path}`,
+        headers: options.headers,
+        body: payloadString
+      })
+
       const req = https.request(options, (res) => {
         let responseData = Buffer.alloc(0)
 
@@ -1113,7 +1122,7 @@ class ClaudeRelayService {
       })
 
       // 写入请求体
-      req.write(JSON.stringify(requestPayload))
+      req.write(payloadString)
       req.end()
     })
   }
@@ -1338,6 +1347,15 @@ class ClaudeRelayService {
       if (betaHeader) {
         options.headers['anthropic-beta'] = betaHeader
       }
+
+      const payloadString = JSON.stringify(requestPayload)
+
+      logger.info('📤 Prepared Claude stream request payload', {
+        accountId,
+        endpoint: `${options.method} ${options.path}`,
+        headers: options.headers,
+        body: payloadString
+      })
 
       const req = https.request(options, async (res) => {
         logger.debug(`🌊 Claude stream response status: ${res.statusCode}`)
@@ -1938,7 +1956,7 @@ class ClaudeRelayService {
       })
 
       // 写入请求体
-      req.write(JSON.stringify(requestPayload))
+      req.write(payloadString)
       req.end()
     })
   }
