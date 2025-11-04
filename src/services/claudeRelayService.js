@@ -968,6 +968,15 @@ class ClaudeRelayService {
     let finalHeaders = { ...defaultHeaders, ...filteredHeaders }
     let requestPayload = body
 
+    // Merge stored Claude Code headers so requests always carry a realistic fingerprint
+    const claudeCodeHeaders = await claudeCodeHeadersService.getAccountHeaders(accountId)
+    Object.keys(claudeCodeHeaders).forEach((key) => {
+      const lowerKey = key.toLowerCase()
+      if (!finalHeaders[key] && !finalHeaders[lowerKey]) {
+        finalHeaders[key] = claudeCodeHeaders[key]
+      }
+    })
+
     const extensionResult = this._applyLocalRequestFormatters(requestPayload, finalHeaders, {
       account,
       accountId,
