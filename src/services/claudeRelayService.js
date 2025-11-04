@@ -959,31 +959,14 @@ class ClaudeRelayService {
     // 获取账户信息用于统一 User-Agent
     const account = await claudeAccountService.getAccount(accountId)
 
-    // 获取统一的 User-Agent
-    const unifiedUA = await this.captureAndGetUnifiedUserAgent(clientHeaders, account)
+    const defaultHeaders =
+      (await this.captureAndGetUnifiedUserAgent(clientHeaders, account)) || {}
 
     // 获取过滤后的客户端 headers
     const filteredHeaders = this._filterClientHeaders(clientHeaders)
 
-    // 判断是否是真实的 Claude Code 请求
-    const isRealClaudeCode = this.isRealClaudeCodeRequest(body)
-
-    // 如果不是真实的 Claude Code 请求，需要使用从账户获取的 Claude Code headers
-    let finalHeaders = { ...filteredHeaders }
+    let finalHeaders = { ...defaultHeaders, ...filteredHeaders }
     let requestPayload = body
-
-    if (!isRealClaudeCode) {
-      // 获取该账号存储的 Claude Code headers
-      const claudeCodeHeaders = await claudeCodeHeadersService.getAccountHeaders(accountId)
-
-      // 只添加客户端没有提供的 headers
-      Object.keys(claudeCodeHeaders).forEach((key) => {
-        const lowerKey = key.toLowerCase()
-        if (!finalHeaders[key] && !finalHeaders[lowerKey]) {
-          finalHeaders[key] = claudeCodeHeaders[key]
-        }
-      })
-    }
 
     const extensionResult = this._applyLocalRequestFormatters(requestPayload, finalHeaders, {
       account,
@@ -1025,9 +1008,8 @@ class ClaudeRelayService {
       }
 
       // 使用统一 User-Agent 或客户端提供的，最后使用默认值
-      if (!options.headers['user-agent'] || unifiedUA !== null) {
-        const userAgent = unifiedUA || 'claude-cli/1.0.119 (external, cli)'
-        options.headers['user-agent'] = userAgent
+      if (!options.headers['user-agent'] && defaultHeaders['user-agent']) {
+        options.headers['user-agent'] = defaultHeaders['user-agent']
       }
 
       logger.info(`🔗 指纹是这个: ${options.headers['user-agent']}`)
@@ -1292,27 +1274,23 @@ class ClaudeRelayService {
     const unifiedUA = await this.captureAndGetUnifiedUserAgent(clientHeaders, account)
 
     // 获取过滤后的客户端 headers
+    const defaultHeaders =
+      (await this.captureAndGetUnifiedUserAgent(clientHeaders, account)) || {}
+
     const filteredHeaders = this._filterClientHeaders(clientHeaders)
 
-    // 判断是否是真实的 Claude Code 请求
-    const isRealClaudeCode = this.isRealClaudeCodeRequest(body)
-
-    // 如果不是真实的 Claude Code 请求，需要使用从账户获取的 Claude Code headers
-    let finalHeaders = { ...filteredHeaders }
+    let finalHeaders = { ...defaultHeaders, ...filteredHeaders }
     let requestPayload = body
 
-    if (!isRealClaudeCode) {
-      // 获取该账号存储的 Claude Code headers
-      const claudeCodeHeaders = await claudeCodeHeadersService.getAccountHeaders(accountId)
+    // 获取该账号存储的 Claude Code headers
+    const claudeCodeHeaders = await claudeCodeHeadersService.getAccountHeaders(accountId)
 
-      // 只添加客户端没有提供的 headers
-      Object.keys(claudeCodeHeaders).forEach((key) => {
-        const lowerKey = key.toLowerCase()
-        if (!finalHeaders[key] && !finalHeaders[lowerKey]) {
-          finalHeaders[key] = claudeCodeHeaders[key]
-        }
-      })
-    }
+    Object.keys(claudeCodeHeaders).forEach((key) => {
+      const lowerKey = key.toLowerCase()
+      if (!finalHeaders[key] && !finalHeaders[lowerKey]) {
+        finalHeaders[key] = claudeCodeHeaders[key]
+      }
+    })
 
     const extensionResult = this._applyLocalRequestFormatters(requestPayload, finalHeaders, {
       account,
@@ -1350,9 +1328,8 @@ class ClaudeRelayService {
       }
 
       // 使用统一 User-Agent 或客户端提供的，最后使用默认值
-      if (!options.headers['user-agent'] || unifiedUA !== null) {
-        const userAgent = unifiedUA || 'claude-cli/1.0.119 (external, cli)'
-        options.headers['user-agent'] = userAgent
+      if (!options.headers['user-agent'] && defaultHeaders['user-agent']) {
+        options.headers['user-agent'] = defaultHeaders['user-agent']
       }
 
       logger.info(`🔗 指纹是这个: ${options.headers['user-agent']}`)
@@ -2066,42 +2043,27 @@ class ClaudeRelayService {
 
   // 🔧 动态捕获并获取统一的 User-Agent
   async captureAndGetUnifiedUserAgent(clientHeaders, account) {
-    if (account.useUnifiedUserAgent !== 'true') {
+    if (!account || account.useUnifiedUserAgent !== 'true') {
       return null
     }
 
-    const CACHE_KEY = 'claude_code_user_agent:daily'
-    const TTL = 90000 // 25小时
-
-    // ⚠️ 重要：这里通过正则表达式判断是否为 Claude Code 客户端
-    // 如果未来 Claude Code 的 User-Agent 格式发生变化，需要更新这个正则表达式
-    // 当前已知格式：claude-cli/1.0.102 (external, cli)
-    const CLAUDE_CODE_UA_PATTERN = /^claude-cli\/[\d.]+\s+\(/i
-
-    const clientUA = clientHeaders?.['user-agent'] || clientHeaders?.['User-Agent']
-    let cachedUA = await redis.client.get(CACHE_KEY)
-
-    if (clientUA && CLAUDE_CODE_UA_PATTERN.test(clientUA)) {
-      if (!cachedUA) {
-        // 没有缓存，直接存储
-        await redis.client.setex(CACHE_KEY, TTL, clientUA)
-        logger.info(`📱 Captured unified Claude Code User-Agent: ${clientUA}`)
-        cachedUA = clientUA
-      } else {
-        // 有缓存，比较版本号，保存更新的版本
-        const shouldUpdate = this.compareClaudeCodeVersions(clientUA, cachedUA)
-        if (shouldUpdate) {
-          await redis.client.setex(CACHE_KEY, TTL, clientUA)
-          logger.info(`🔄 Updated to newer Claude Code User-Agent: ${clientUA} (was: ${cachedUA})`)
-          cachedUA = clientUA
-        } else {
-          // 当前版本不比缓存版本新，仅刷新TTL
-          await redis.client.expire(CACHE_KEY, TTL)
-        }
-      }
+    const accountId = account.id || account.accountId
+    if (!accountId) {
+      return null
     }
 
-    return cachedUA // 没有缓存返回 null
+    try {
+      const { headers } = await claudeCodeHeadersService.getOrAssignDefaultHeaders(accountId)
+      if (headers && typeof headers === 'object') {
+        return headers
+      }
+    } catch (error) {
+      logger.warn(
+        `⚠️ Failed to load default Claude Code headers for account ${accountId}: ${error.message}`
+      )
+    }
+
+    return null
   }
 
   // 🔄 比较Claude Code版本号，判断是否需要更新
