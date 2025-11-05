@@ -261,6 +261,7 @@ class UnifiedClaudeScheduler {
 
       // CCR 账户不支持绑定（仅通过 ccr, 前缀进行 CCR 路由）
 
+      let hasStickySessionMapping = false
       // 如果有会话哈希，检查是否有已映射的账户
       if (sessionHash) {
         const mappedAccount = await this._getSessionMapping(sessionHash)
@@ -279,6 +280,7 @@ class UnifiedClaudeScheduler {
               effectiveModel
             )
             if (isAvailable) {
+              hasStickySessionMapping = true
               // 🚀 智能会话续期：剩余时间少于14天时自动续期到15天（续期正确的 unified 映射键）
               await this._extendSessionMappingTTL(sessionHash)
               logger.info(
@@ -314,7 +316,7 @@ class UnifiedClaudeScheduler {
       }
 
       const selectedAccount = this._selectAccountByPriority(availableAccounts, {
-        stickySession: Boolean(sessionHash),
+        stickySession: hasStickySessionMapping,
         isOpusRequest
       })
 
@@ -1538,6 +1540,7 @@ class UnifiedClaudeScheduler {
 
       logger.info(`👥 Selecting account from group: ${group.name} (${group.platform})`)
 
+      let hasStickySessionMapping = false
       // 如果有会话哈希，检查是否有已映射的账户
       if (sessionHash) {
         const mappedAccount = await this._getSessionMapping(sessionHash)
@@ -1555,6 +1558,7 @@ class UnifiedClaudeScheduler {
                 requestedModel
               )
               if (isAvailable) {
+                hasStickySessionMapping = true
                 // 🚀 智能会话续期：续期 unified 映射键
                 await this._extendSessionMappingTTL(sessionHash)
                 logger.info(
@@ -1681,7 +1685,7 @@ class UnifiedClaudeScheduler {
       }
 
       const selectedAccount = this._selectAccountByPriority(availableAccounts, {
-        stickySession: Boolean(sessionHash),
+        stickySession: hasStickySessionMapping,
         isOpusRequest
       })
 
