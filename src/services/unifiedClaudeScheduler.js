@@ -313,11 +313,14 @@ class UnifiedClaudeScheduler {
         }
       }
 
-      // 按优先级和最后使用时间排序
-      const sortedAccounts = this._sortAccountsByPriority(availableAccounts)
+      const selectedAccount = this._selectAccountByPriority(availableAccounts, {
+        stickySession: Boolean(sessionHash),
+        isOpusRequest
+      })
 
-      // 选择第一个账户
-      const selectedAccount = sortedAccounts[0]
+      if (!selectedAccount) {
+        throw new Error('No available Claude accounts after priority selection')
+      }
 
       // 如果有会话哈希，建立新的映射
       if (sessionHash) {
@@ -801,6 +804,287 @@ class UnifiedClaudeScheduler {
       const bLastUsed = new Date(b.lastUsedAt || 0).getTime()
       return aLastUsed - bLastUsed
     })
+  }
+
+  _selectAccountByPriority(accounts, { stickySession = false, isOpusRequest = false } = {}) {
+    if (!Array.isArray(accounts) || accounts.length === 0) {
+      return null
+    }
+
+    const sortedAccounts = this._sortAccountsByPriority([...accounts])
+    let selectedAccount = sortedAccounts[0]
+
+    if (!stickySession && selectedAccount) {
+      const topPriority = selectedAccount.priority
+
+      if (topPriority !== undefined) {
+        const topPriorityAccounts = sortedAccounts.filter(
+          (account) => account.priority === topPriority
+        )
+
+        const candidateDetails = topPriorityAccounts.map((account) => {
+          const urgencyWeight =
+            account.accountType === 'claude-official'
+              ? this._calculateOfficialAccountUrgency(account, { isOpusRequest })
+              : null
+
+          return {
+            account,
+            urgencyWeight
+          }
+        })
+
+        const officialCandidates = candidateDetails.filter(
+          (item) => item.account.accountType === 'claude-official'
+        )
+
+        const weightedSelection = this._selectOfficialAccountByUrgency(officialCandidates)
+
+        let selectionMeta = null
+
+        if (weightedSelection) {
+          selectedAccount = weightedSelection.account
+          selectionMeta = {
+            method: 'urgency_weighted',
+            totalWeight: weightedSelection.totalWeight,
+            weightedCandidates: weightedSelection.weightedCandidates,
+            selectedWeight: weightedSelection.weight
+          }
+        } else {
+          selectionMeta = {
+            method: 'priority_last_used',
+            weightedCandidates: null,
+            selectedWeight:
+              candidateDetails.find(
+                (item) => this._extractAccountId(item.account) === this._extractAccountId(selectedAccount)
+              )?.urgencyWeight ?? null
+          }
+        }
+
+        this._logPrioritySelection({
+          priority: topPriority,
+          candidateDetails,
+          selectedAccount,
+          selectionMeta
+        })
+      }
+    }
+
+    return selectedAccount
+  }
+
+  _selectOfficialAccountByUrgency(candidates) {
+    if (!Array.isArray(candidates) || candidates.length === 0) {
+      return null
+    }
+
+    const weightedCandidates = candidates
+      .map(({ account, urgencyWeight }) => ({
+        account,
+        weight: Number.isFinite(urgencyWeight) && urgencyWeight > 0 ? urgencyWeight : 0
+      }))
+      .filter((item) => item.weight > 0)
+
+    if (weightedCandidates.length === 0) {
+      return null
+    }
+
+    const totalWeight = weightedCandidates.reduce((sum, item) => sum + item.weight, 0)
+    if (!Number.isFinite(totalWeight) || totalWeight <= 0) {
+      return null
+    }
+
+    let randomValue = Math.random() * totalWeight
+    let selected = weightedCandidates[weightedCandidates.length - 1]
+
+    for (const item of weightedCandidates) {
+      randomValue -= item.weight
+      if (randomValue <= 0) {
+        selected = item
+        break
+      }
+    }
+
+    const detailedCandidates = weightedCandidates.map(({ account, weight }) => {
+      const accountId = this._extractAccountId(account)
+      return {
+        accountId,
+        accountName: account.name,
+        weight,
+        probability: weight / totalWeight
+      }
+    })
+
+    return {
+      account: selected.account,
+      weight: selected.weight,
+      totalWeight,
+      weightedCandidates: detailedCandidates
+    }
+  }
+
+  _logPrioritySelection({ priority, candidateDetails, selectedAccount, selectionMeta }) {
+    if (!Array.isArray(candidateDetails) || candidateDetails.length === 0 || !selectedAccount) {
+      return
+    }
+
+    const selectedAccountId = this._extractAccountId(selectedAccount)
+    const weightedStats = selectionMeta?.weightedCandidates || []
+
+    const logCandidates = candidateDetails.map(({ account, urgencyWeight }) => {
+      const accountId = this._extractAccountId(account)
+      const weightedInfo = weightedStats.find((item) => item.accountId === accountId)
+
+      return {
+        accountId,
+        accountName: account.name,
+        accountType: account.accountType,
+        priority: account.priority,
+        lastUsedAt: account.lastUsedAt || null,
+        urgencyWeight: Number.isFinite(urgencyWeight)
+          ? Number(urgencyWeight.toFixed(4))
+          : null,
+        probability: weightedInfo
+          ? Number((weightedInfo.probability * 100).toFixed(2))
+          : weightedStats.length > 0
+            ? 0
+            : null
+      }
+    })
+
+    let selectedEntry = logCandidates.find((item) => item.accountId === selectedAccountId)
+    if (selectedEntry) {
+      selectedEntry = { ...selectedEntry }
+    } else {
+      selectedEntry = {
+        accountId: selectedAccountId,
+        accountName: selectedAccount.name,
+        accountType: selectedAccount.accountType || null,
+        priority: selectedAccount.priority ?? null,
+        lastUsedAt: selectedAccount.lastUsedAt || null,
+        urgencyWeight: null,
+        probability: null
+      }
+    }
+
+    if (selectionMeta?.selectedWeight !== undefined) {
+      selectedEntry.selectedUrgencyWeight = Number.isFinite(selectionMeta.selectedWeight)
+        ? Number(selectionMeta.selectedWeight.toFixed(4))
+        : null
+    }
+
+    selectedEntry.isSelected = true
+
+    logger.info(
+      `🎯 Claude priority selection (no sticky session, priority ${priority})`,
+      {
+        method: selectionMeta?.method || 'priority_last_used',
+        candidates: logCandidates,
+        selected: selectedEntry
+      }
+    )
+  }
+
+  _calculateOfficialAccountUrgency(account, { isOpusRequest = false } = {}) {
+    if (!account) {
+      return null
+    }
+
+    const snapshot = claudeAccountService.buildClaudeUsageSnapshot(account)
+    if (!snapshot) {
+      return null
+    }
+
+    const urgencies = []
+
+    const fiveHourUrgency = this._calculateUsageWindowUrgency(snapshot.fiveHour)
+    if (Number.isFinite(fiveHourUrgency) && fiveHourUrgency > 0) {
+      urgencies.push(fiveHourUrgency)
+    }
+
+    const sevenDayUrgency = this._calculateUsageWindowUrgency(snapshot.sevenDay)
+    if (Number.isFinite(sevenDayUrgency) && sevenDayUrgency > 0) {
+      urgencies.push(sevenDayUrgency)
+    }
+
+    if (isOpusRequest) {
+      const sevenDayOpusUrgency = this._calculateUsageWindowUrgency(snapshot.sevenDayOpus)
+      if (Number.isFinite(sevenDayOpusUrgency) && sevenDayOpusUrgency > 0) {
+        urgencies.push(sevenDayOpusUrgency)
+      }
+    }
+
+    if (urgencies.length === 0) {
+      return null
+    }
+
+    return Math.max(...urgencies)
+  }
+
+  _calculateUsageWindowUrgency(windowData) {
+    if (!windowData) {
+      return null
+    }
+
+    if (windowData.utilization === null || windowData.utilization === undefined) {
+      return null
+    }
+
+    const normalizedUtilization = this._normalizeUtilizationValue(windowData.utilization)
+    if (normalizedUtilization === null) {
+      return null
+    }
+
+    const rawRemainingSeconds = windowData.remainingSeconds
+    if (rawRemainingSeconds === null || rawRemainingSeconds === undefined) {
+      return null
+    }
+
+    const remainingSeconds = Number(rawRemainingSeconds)
+    if (!Number.isFinite(remainingSeconds) || remainingSeconds < 0) {
+      return null
+    }
+
+    const remainingRatio = Math.max(0, 1 - normalizedUtilization)
+    if (remainingRatio <= 0) {
+      return null
+    }
+
+    const hoursRemaining = Math.max(remainingSeconds / 3600, 0.01)
+
+    return (remainingRatio * 100) / hoursRemaining
+  }
+
+  _normalizeUtilizationValue(value) {
+    if (value === null || value === undefined) {
+      return null
+    }
+
+    const numericValue = Number(value)
+    if (!Number.isFinite(numericValue)) {
+      return null
+    }
+
+    if (numericValue < 0) {
+      return 0
+    }
+
+    if (numericValue <= 1) {
+      return Math.min(1, numericValue)
+    }
+
+    if (numericValue <= 100) {
+      return numericValue / 100
+    }
+
+    return 1
+  }
+
+  _extractAccountId(account) {
+    if (!account) {
+      return null
+    }
+    return account.accountId || account.id || null
   }
 
   // 🔍 检查账户是否可用
@@ -1396,11 +1680,14 @@ class UnifiedClaudeScheduler {
         throw new Error(`No available accounts in group ${group.name}`)
       }
 
-      // 使用现有的优先级排序逻辑
-      const sortedAccounts = this._sortAccountsByPriority(availableAccounts)
+      const selectedAccount = this._selectAccountByPriority(availableAccounts, {
+        stickySession: Boolean(sessionHash),
+        isOpusRequest
+      })
 
-      // 选择第一个账户
-      const selectedAccount = sortedAccounts[0]
+      if (!selectedAccount) {
+        throw new Error(`No available accounts in group ${group.name}`)
+      }
 
       // 如果有会话哈希，建立新的映射
       if (sessionHash) {
