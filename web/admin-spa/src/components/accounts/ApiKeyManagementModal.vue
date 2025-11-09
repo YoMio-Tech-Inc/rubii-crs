@@ -207,6 +207,21 @@
                     <i class="fas fa-trash mr-1" />
                     删除全部
                   </button>
+                  <button
+                    class="group rounded-md bg-gradient-to-r from-green-500 to-green-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition-all hover:from-green-600 hover:to-green-700 hover:shadow disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:shadow-sm"
+                    :disabled="statusFilter !== 'error' || filteredErrorKeys.length === 0 || bulkResetting"
+                    title="将当前筛选出的异常 Key 恢复为正常状态"
+                    @click="clearFilteredErrors"
+                  >
+                    <template v-if="bulkResetting">
+                      <i class="fas fa-spinner fa-spin mr-1" />
+                      正在清除...
+                    </template>
+                    <template v-else>
+                      <i class="fas fa-broom mr-1" />
+                      清除当前错误
+                    </template>
+                  </button>
                   <div class="mx-1 h-5 w-px bg-gray-300 dark:bg-gray-600"></div>
                   <button
                     class="rounded-md bg-gradient-to-r from-blue-500 to-blue-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition-all hover:from-blue-600 hover:to-blue-700 hover:shadow disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:shadow-sm"
@@ -440,6 +455,7 @@ const searchQuery = ref('')
 const searchMode = ref('fuzzy') // 'fuzzy' | 'exact'
 const batchDeleting = ref(false)
 const errorCodeFilter = ref('all')
+const bulkResetting = ref(false)
 
 // 掩码显示 API Key（提前声明供 computed 使用）
 const maskApiKey = (key) => {
@@ -534,6 +550,10 @@ const errorCodeOptions = computed(() => {
     }
   })
   return Array.from(codes).sort((a, b) => a.localeCompare(b))
+})
+
+const filteredErrorKeys = computed(() => {
+  return filteredApiKeys.value.filter((key) => key.status === 'error')
 })
 
 watch([statusFilter, searchQuery, searchMode, errorCodeFilter], () => {
@@ -676,16 +696,17 @@ const resetApiKeyStatus = async (apiKey) => {
   resetting.value = apiKey.key
   try {
     // 准备更新数据：重置指定 key 的状态
-    const updateData = {
-      apiKeys: [
-        {
-          key: apiKey.key,
-          status: 'active',
-          errorMessage: ''
-        }
-      ],
-      apiKeyUpdateMode: 'update'
-    }
+      const updateData = {
+        apiKeys: [
+          {
+            key: apiKey.key,
+            status: 'active',
+            errorMessage: '',
+            errorCode: ''
+          }
+        ],
+        apiKeyUpdateMode: 'update'
+      }
 
     await apiClient.put(`/admin/droid-accounts/${props.accountId}`, updateData)
 
@@ -697,6 +718,44 @@ const resetApiKeyStatus = async (apiKey) => {
     showToast(error.response?.data?.error || '重置 API Key 状态失败', 'error')
   } finally {
     resetting.value = null
+  }
+}
+
+const clearFilteredErrors = async () => {
+  if (statusFilter.value !== 'error' || filteredErrorKeys.value.length === 0) {
+    return
+  }
+
+  const description =
+    errorCodeFilter.value !== 'all'
+      ? `错误码 ${errorCodeFilter.value} 的 ${filteredErrorKeys.value.length} 个 Key`
+      : `当前筛选的 ${filteredErrorKeys.value.length} 个异常 Key`
+
+  if (!confirm(`确定要清除 ${description} 吗？这将把它们恢复为正常状态。`)) {
+    return
+  }
+
+  bulkResetting.value = true
+  try {
+    const updateData = {
+      apiKeys: filteredErrorKeys.value.map((item) => ({
+        key: item.key,
+        status: 'active',
+        errorMessage: '',
+        errorCode: ''
+      })),
+      apiKeyUpdateMode: 'update'
+    }
+
+    await apiClient.put(`/admin/droid-accounts/${props.accountId}`, updateData)
+    showToast('选定的异常 Key 已恢复为正常', 'success')
+    await loadApiKeys()
+    emit('refresh')
+  } catch (error) {
+    console.error('Failed to clear filtered errors:', error)
+    showToast(error.response?.data?.error || '清除异常 Key 失败', 'error')
+  } finally {
+    bulkResetting.value = false
   }
 }
 
