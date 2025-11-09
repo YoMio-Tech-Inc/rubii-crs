@@ -46,6 +46,10 @@ class DroidAccountService {
     )
 
     this.supportedEndpointTypes = new Set(['anthropic', 'openai'])
+
+    const recoveryConfig = (config.droid && config.droid.keyRecovery) || {}
+    this.keyRecoveryWindowMs = recoveryConfig.recoveryWindowMs || 24 * 60 * 60 * 1000
+    this.keyRecoveryRetryIntervalMs = recoveryConfig.probeIntervalMs || 2 * 60 * 1000
   }
 
   _sanitizeEndpointType(endpointType) {
@@ -185,7 +189,14 @@ class DroidAccountService {
           .filter((entry) => entry && entry.id && entry.encryptedKey)
           .map((entry) => ({
             ...entry,
-            status: entry.status || 'active' // 确保有默认状态
+            status: entry.status || 'active', // 确保有默认状态
+            errorMessage: entry.errorMessage || '',
+            errorSince: entry.errorSince || '',
+            recoveryExpiresAt: entry.recoveryExpiresAt || '',
+            nextRecoveryAt: entry.nextRecoveryAt || '',
+            recoveryAttempts: entry.recoveryAttempts || '0',
+            lastRecoveryAttemptAt: entry.lastRecoveryAttemptAt || '',
+            lastRecoveryResult: entry.lastRecoveryResult || ''
           }))
 
     const hashSet = new Set(entries.map((entry) => entry.hash).filter(Boolean))
@@ -219,7 +230,13 @@ class DroidAccountService {
         lastUsedAt: '',
         usageCount: '0',
         status: 'active', // 新增状态字段
-        errorMessage: '' // 新增错误信息字段
+        errorMessage: '', // 新增错误信息字段
+        errorSince: '',
+        recoveryExpiresAt: '',
+        nextRecoveryAt: '',
+        recoveryAttempts: '0',
+        lastRecoveryAttemptAt: '',
+        lastRecoveryResult: ''
       })
     }
 
@@ -231,14 +248,20 @@ class DroidAccountService {
       return []
     }
 
-    return entries.map((entry) => ({
-      id: entry.id,
-      createdAt: entry.createdAt || '',
-      lastUsedAt: entry.lastUsedAt || '',
-      usageCount: entry.usageCount || '0',
-      status: entry.status || 'active', // 新增状态字段
-      errorMessage: entry.errorMessage || '' // 新增错误信息字段
-    }))
+  return entries.map((entry) => ({
+    id: entry.id,
+    createdAt: entry.createdAt || '',
+    lastUsedAt: entry.lastUsedAt || '',
+    usageCount: entry.usageCount || '0',
+    status: entry.status || 'active', // 新增状态字段
+    errorMessage: entry.errorMessage || '', // 新增错误信息字段
+    errorSince: entry.errorSince || '',
+    recoveryExpiresAt: entry.recoveryExpiresAt || '',
+    nextRecoveryAt: entry.nextRecoveryAt || '',
+    recoveryAttempts: entry.recoveryAttempts || '0',
+    lastRecoveryAttemptAt: entry.lastRecoveryAttemptAt || '',
+    lastRecoveryResult: entry.lastRecoveryResult || ''
+  }))
   }
 
   _decryptApiKeyEntry(entry) {
@@ -252,6 +275,7 @@ class DroidAccountService {
     }
 
     const usageCountNumber = Number(entry.usageCount)
+    const recoveryAttemptsNumber = Number(entry.recoveryAttempts)
 
     return {
       id: entry.id,
@@ -261,7 +285,16 @@ class DroidAccountService {
       lastUsedAt: entry.lastUsedAt || '',
       usageCount: Number.isFinite(usageCountNumber) && usageCountNumber >= 0 ? usageCountNumber : 0,
       status: entry.status || 'active', // 新增状态字段
-      errorMessage: entry.errorMessage || '' // 新增错误信息字段
+      errorMessage: entry.errorMessage || '', // 新增错误信息字段
+      errorSince: entry.errorSince || '',
+      recoveryExpiresAt: entry.recoveryExpiresAt || '',
+      nextRecoveryAt: entry.nextRecoveryAt || '',
+      recoveryAttempts:
+        Number.isFinite(recoveryAttemptsNumber) && recoveryAttemptsNumber >= 0
+          ? recoveryAttemptsNumber
+          : 0,
+      lastRecoveryAttemptAt: entry.lastRecoveryAttemptAt || '',
+      lastRecoveryResult: entry.lastRecoveryResult || ''
     }
   }
 
@@ -377,13 +410,25 @@ class DroidAccountService {
       }
 
       let marked = false
+      const now = new Date()
+      const nowIso = now.toISOString()
+      const retryInterval = this.keyRecoveryRetryIntervalMs || 2 * 60 * 1000
+      const nextAttemptIso = new Date(now.getTime() + retryInterval).toISOString()
+      const recoveryWindow = this.keyRecoveryWindowMs || 24 * 60 * 60 * 1000
+      const recoveryDeadlineIso = new Date(now.getTime() + recoveryWindow).toISOString()
       const updatedEntries = entries.map((entry) => {
         if (entry && entry.id === keyId) {
           marked = true
           return {
             ...entry,
             status: 'error',
-            errorMessage: errorMessage || 'API Key异常'
+            errorMessage: errorMessage || 'API Key异常',
+            errorSince: nowIso,
+            recoveryExpiresAt: recoveryDeadlineIso,
+            nextRecoveryAt: nextAttemptIso,
+            recoveryAttempts: '0',
+            lastRecoveryAttemptAt: '',
+            lastRecoveryResult: ''
           }
         }
         return entry
@@ -405,6 +450,162 @@ class DroidAccountService {
       logger.error(`❌ 标记 Droid API Key 异常状态失败：${keyId}（Account: ${accountId}）`, error)
       return { marked: false, error: error.message }
     }
+  }
+
+  /**
+   * 更新指定 API Key 的恢复状态
+   */
+  async updateApiKeyRecoveryState(accountId, keyId, updates = {}) {
+    if (!accountId || !keyId || !updates || typeof updates !== 'object') {
+      return { updated: false, error: '参数无效' }
+    }
+
+    try {
+      const accountData = await redis.getDroidAccount(accountId)
+      if (!accountData) {
+        return { updated: false, error: '账户不存在' }
+      }
+
+      const entries = this._parseApiKeyEntries(accountData.apiKeys)
+      if (!entries || entries.length === 0) {
+        return { updated: false, error: '无API Key条目' }
+      }
+
+      const index = entries.findIndex((entry) => entry && entry.id === keyId)
+      if (index === -1) {
+        return { updated: false, error: '未找到指定的API Key' }
+      }
+
+      const allowedFields = [
+        'status',
+        'errorMessage',
+        'errorSince',
+        'recoveryExpiresAt',
+        'nextRecoveryAt',
+        'recoveryAttempts',
+        'lastRecoveryAttemptAt',
+        'lastRecoveryResult'
+      ]
+
+      const updatedEntry = { ...entries[index] }
+      for (const field of allowedFields) {
+        if (!Object.prototype.hasOwnProperty.call(updates, field)) {
+          continue
+        }
+
+        let value = updates[field]
+
+        if (field === 'recoveryAttempts') {
+          const numeric = Number(value)
+          value = Number.isFinite(numeric) && numeric >= 0 ? String(numeric) : '0'
+        } else if (typeof value === 'number') {
+          value = value.toString()
+        } else if (value === null) {
+          value = ''
+        }
+
+        updatedEntry[field] = value
+      }
+
+      entries[index] = updatedEntry
+      accountData.apiKeys = JSON.stringify(entries)
+
+      await redis.setDroidAccount(accountId, accountData)
+      return { updated: true, entry: updatedEntry }
+    } catch (error) {
+      logger.error(`❌ 更新 Droid API Key 恢复状态失败：${keyId}（Account: ${accountId}）`, error)
+      return { updated: false, error: error.message }
+    }
+  }
+
+  /**
+   * 获取需要尝试恢复的 API Key 条目
+   */
+  async getRecoverableApiKeyEntries(options = {}) {
+    const {
+      maxEntries = 10,
+      maxAgeMs = this.keyRecoveryWindowMs || 24 * 60 * 60 * 1000,
+      dueBefore = Date.now()
+    } = options || {}
+
+    const normalizedMaxAgeMs =
+      Number.isFinite(maxAgeMs) && maxAgeMs > 0 ? maxAgeMs : 24 * 60 * 60 * 1000
+    const accounts = await redis.getAllDroidAccounts()
+    const now = Date.now()
+    const normalizedDueBefore = Number.isFinite(dueBefore) ? dueBefore : now
+    const recoverable = []
+
+    for (const account of accounts) {
+      if (!account || !account.id) {
+        continue
+      }
+
+      const authMethod =
+        typeof account.authenticationMethod === 'string'
+          ? account.authenticationMethod.trim().toLowerCase()
+          : ''
+
+      if (authMethod !== 'api_key') {
+        continue
+      }
+
+      const entries = this._parseApiKeyEntries(account.apiKeys)
+      if (!entries || entries.length === 0) {
+        continue
+      }
+
+      for (const entry of entries) {
+        if (!entry || entry.status !== 'error') {
+          continue
+        }
+
+        const errorSinceMs = Date.parse(entry.errorSince || '')
+        const effectiveErrorSince = Number.isFinite(errorSinceMs) ? errorSinceMs : now
+
+        const recoveryDeadlineMs = (() => {
+          const parsed = Date.parse(entry.recoveryExpiresAt || '')
+          if (Number.isFinite(parsed)) {
+            return parsed
+          }
+          return effectiveErrorSince + normalizedMaxAgeMs
+        })()
+
+        if (normalizedDueBefore > recoveryDeadlineMs) {
+          continue
+        }
+
+        const nextRecoveryMs = Date.parse(entry.nextRecoveryAt || '')
+        if (Number.isFinite(nextRecoveryMs) && nextRecoveryMs > normalizedDueBefore) {
+          continue
+        }
+
+        const decryptedEntry = this._decryptApiKeyEntry(entry)
+        if (!decryptedEntry) {
+          continue
+        }
+
+        recoverable.push({
+          accountId: account.id,
+          accountName: account.name || account.id,
+          endpointType: this._sanitizeEndpointType(account.endpointType),
+          proxy: account.proxy || '',
+          entry: {
+            ...decryptedEntry,
+            errorSince: new Date(effectiveErrorSince).toISOString(),
+            recoveryExpiresAt: new Date(recoveryDeadlineMs).toISOString(),
+            nextRecoveryAt: Number.isFinite(nextRecoveryMs)
+              ? new Date(nextRecoveryMs).toISOString()
+              : new Date(effectiveErrorSince).toISOString()
+          }
+        })
+
+        if (recoverable.length >= maxEntries) {
+          return recoverable
+        }
+      }
+    }
+
+    return recoverable
   }
 
   /**

@@ -573,6 +573,26 @@ gpt-5                      # Codex使用固定模型ID
 - API密钥可以通用，系统会根据路由自动选择账号类型
 - 建议为不同用户创建不同的API密钥便于使用统计
 
+### 🤖 Droid 多 Key 自动自愈
+
+从本版本开始，所有 `Droid` 账号的多 Key 账号池在遇到 4xx 等异常时会自动进入「自愈模式」：
+
+- 被标记为 `error` 的 Key 会在 24 小时的恢复窗口内，每隔 2 分钟向 Factory.ai 发送一次 `say word "hello"` 探测请求。
+- 只要收到任意文本内容，系统会立即把该 Key 状态切回 `active`，清理错误信息，并把关联账号重新标记为可调度。
+- 如果 24 小时内仍无法恢复，Key 会保持 `error` 状态，需要人工处理。
+
+可通过环境变量调整该行为（写入 `.env` 或 `config/config.js`）：
+
+- `DROID_KEY_RECOVERY_ENABLED`：是否启用自愈（默认启用）
+- `DROID_KEY_RECOVERY_PROBE_INTERVAL_MS`：单个 Key 的探测间隔，默认 120000 ms（2 分钟）
+- `DROID_KEY_RECOVERY_WINDOW_MS`：自愈时间窗口，默认 24 小时
+- `DROID_KEY_RECOVERY_SCAN_INTERVAL_MS`：后台扫描频率，默认 30000 ms
+- `DROID_KEY_RECOVERY_MAX_CONCURRENCY`：单次最大探测 Key 数，默认 3
+- `DROID_KEY_RECOVERY_ANTHROPIC_MODEL` / `DROID_KEY_RECOVERY_OPENAI_MODEL`：探测使用的模型
+- `DROID_KEY_RECOVERY_PROMPT`：探测时的系统提示词
+
+无需额外操作即可使用，后台会自动定时探测与恢复。
+
 ---
 
 ## 🔧 日常维护

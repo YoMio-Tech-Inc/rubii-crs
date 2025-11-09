@@ -65,6 +65,7 @@ Claude Relay Service 是一个多平台 AI API 中转服务，支持 **Claude (�
 - **webhookService.js**: Webhook通知服务
 - **webhookConfigService.js**: Webhook配置管理
 - **ldapService.js**: LDAP认证服务
+- **droidApiKeyRecoveryService.js**: Droid 多 Key 探测与自愈服务
 - **tokenRefreshService.js**: Token自动刷新服务
 - **rateLimitCleanupService.js**: 速率限制状态清理服务
 - **claudeCodeHeadersService.js**: Claude Code客户端请求头处理

@@ -566,6 +566,14 @@ class Application {
       `🚨 Rate limit cleanup service started (checking every ${cleanupIntervalMinutes} minutes)`
     )
 
+    // 🤖 启动 Droid API Key 自愈任务
+    try {
+      const droidApiKeyRecoveryService = require('./services/droidApiKeyRecoveryService')
+      droidApiKeyRecoveryService.start()
+    } catch (error) {
+      logger.error('❌ Failed to start Droid API key recovery service:', error)
+    }
+
     // 🔢 启动并发计数自动清理任务（Phase 1 修复：解决并发泄漏问题）
     // 每分钟主动清理所有过期的并发项，不依赖请求触发
     setInterval(async () => {
@@ -662,6 +670,15 @@ class Application {
             logger.info('🚨 Rate limit cleanup service stopped')
           } catch (error) {
             logger.error('❌ Error stopping rate limit cleanup service:', error)
+          }
+
+          // 停止 Droid Key 恢复任务
+          try {
+            const droidApiKeyRecoveryService = require('./services/droidApiKeyRecoveryService')
+            droidApiKeyRecoveryService.stop()
+            logger.info('🤖 Droid API key recovery service stopped')
+          } catch (error) {
+            logger.error('❌ Error stopping Droid API key recovery service:', error)
           }
 
           // 🔢 清理所有并发计数（Phase 1 修复：防止重启泄漏）

@@ -119,6 +119,25 @@ const config = {
     timezoneOffset: parseInt(process.env.TIMEZONE_OFFSET) || 8 // UTC偏移小时数，默认+8
   },
 
+  // 🤖 Droid 相关配置
+  droid: {
+    keyRecovery: {
+      enabled: process.env.DROID_KEY_RECOVERY_ENABLED !== 'false', // 默认启用
+      probePrompt: process.env.DROID_KEY_RECOVERY_PROMPT || 'Please say the single word "hello".',
+      recoveryWindowMs:
+        parseInt(process.env.DROID_KEY_RECOVERY_WINDOW_MS) || 24 * 60 * 60 * 1000, // 默认24小时
+      probeIntervalMs:
+        parseInt(process.env.DROID_KEY_RECOVERY_PROBE_INTERVAL_MS) || 2 * 60 * 1000, // 默认2分钟
+      scanIntervalMs:
+        parseInt(process.env.DROID_KEY_RECOVERY_SCAN_INTERVAL_MS) || 30000, // 默认30秒扫描一次
+      maxConcurrentProbes:
+        parseInt(process.env.DROID_KEY_RECOVERY_MAX_CONCURRENCY) || 6, // 默认并发3个探测
+      anthropicModel:
+        process.env.DROID_KEY_RECOVERY_ANTHROPIC_MODEL || 'claude-sonnet-4-5-20250929',
+      openaiModel: process.env.DROID_KEY_RECOVERY_OPENAI_MODEL || 'gpt-5-2025-08-07'
+    }
+  },
+
   // 🎨 Web界面配置
   web: {
     title: process.env.WEB_TITLE || 'Claude Relay Service',
