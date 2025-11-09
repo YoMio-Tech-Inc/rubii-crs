@@ -209,7 +209,7 @@
                   </button>
                   <button
                     class="group rounded-md bg-gradient-to-r from-green-500 to-green-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition-all hover:from-green-600 hover:to-green-700 hover:shadow disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:shadow-sm"
-                    :disabled="statusFilter !== 'error' || filteredErrorKeys.length === 0 || bulkResetting"
+                    :disabled="isClearErrorsDisabled"
                     title="将当前筛选出的异常 Key 恢复为正常状态"
                     @click="clearFilteredErrors"
                   >
@@ -554,6 +554,10 @@ const errorCodeOptions = computed(() => {
 
 const filteredErrorKeys = computed(() => {
   return filteredApiKeys.value.filter((key) => key.status === 'error')
+})
+
+const isClearErrorsDisabled = computed(() => {
+  return statusFilter.value !== 'error' || filteredErrorKeys.value.length === 0 || bulkResetting.value
 })
 
 watch([statusFilter, searchQuery, searchMode, errorCodeFilter], () => {
