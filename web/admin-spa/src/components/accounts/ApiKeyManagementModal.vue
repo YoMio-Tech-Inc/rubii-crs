@@ -209,7 +209,11 @@
                   </button>
                   <button
                     class="group rounded-md bg-gradient-to-r from-green-500 to-green-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition-all hover:from-green-600 hover:to-green-700 hover:shadow disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:shadow-sm"
-                    :disabled="statusFilter !== 'error' || filteredErrorKeys.length === 0 || bulkResetting"
+                    :disabled="
+                      statusFilter !== 'error' ||
+                      filteredErrorKeys.length === 0 ||
+                      bulkResetting
+                    "
                     title="将当前筛选出的异常 Key 恢复为正常状态"
                     @click="clearFilteredErrors"
                   >
@@ -696,17 +700,17 @@ const resetApiKeyStatus = async (apiKey) => {
   resetting.value = apiKey.key
   try {
     // 准备更新数据：重置指定 key 的状态
-      const updateData = {
-        apiKeys: [
-          {
-            key: apiKey.key,
-            status: 'active',
-            errorMessage: '',
-            errorCode: ''
-          }
-        ],
-        apiKeyUpdateMode: 'update'
-      }
+    const updateData = {
+      apiKeys: [
+        {
+          key: apiKey.key,
+          status: 'active',
+          errorMessage: '',
+          errorCode: ''
+        }
+      ],
+      apiKeyUpdateMode: 'update'
+    }
 
     await apiClient.put(`/admin/droid-accounts/${props.accountId}`, updateData)
 
