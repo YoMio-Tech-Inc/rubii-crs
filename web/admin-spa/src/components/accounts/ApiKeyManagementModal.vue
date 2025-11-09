@@ -557,11 +557,10 @@ const filteredErrorKeys = computed(() => {
 })
 
 const isClearErrorsDisabled = computed(() => {
-  return (
-    statusFilter.value !== 'error' ||
-    filteredErrorKeys.value.length === 0 ||
-    bulkResetting.value
-  )
+  const noErrorTab = statusFilter.value !== 'error'
+  const noFilteredErrors = filteredErrorKeys.value.length === 0
+  const isBulkResetting = bulkResetting.value
+  return noErrorTab || noFilteredErrors || isBulkResetting
 })
 
 watch([statusFilter, searchQuery, searchMode, errorCodeFilter], () => {
