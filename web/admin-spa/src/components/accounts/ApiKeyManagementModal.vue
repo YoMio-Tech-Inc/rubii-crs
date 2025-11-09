@@ -70,7 +70,7 @@
               <!-- 第一行：筛选和搜索 -->
               <div class="mb-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <!-- 左侧：状态筛选 -->
-                <div class="flex items-center gap-2">
+                <div class="flex flex-wrap items-center gap-2">
                   <i class="fas fa-filter text-gray-400 dark:text-gray-500" />
                   <span class="text-sm font-medium text-gray-700 dark:text-gray-300">筛选：</span>
                   <div class="flex gap-1">
@@ -108,6 +108,29 @@
                     >
                       <i class="fas fa-exclamation-triangle mr-1" />
                       异常 ({{ errorKeysCount }})
+                    </button>
+                  </div>
+                  <!-- 错误码筛选，仅在异常状态下展示 -->
+                  <div
+                    v-if="statusFilter === 'error' && errorCodeOptions.length > 0"
+                    class="flex items-center gap-2 rounded-md border border-gray-200 bg-white px-2 py-1 dark:border-gray-700 dark:bg-gray-800"
+                  >
+                    <span class="text-xs text-gray-600 dark:text-gray-400">错误码</span>
+                    <select
+                      v-model="errorCodeFilter"
+                      class="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 focus:border-purple-400 focus:outline-none focus:ring-1 focus:ring-purple-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200"
+                    >
+                      <option value="all">全部</option>
+                      <option v-for="code in errorCodeOptions" :key="code" :value="code">
+                        {{ code }}
+                      </option>
+                    </select>
+                    <button
+                      v-if="errorCodeFilter !== 'all'"
+                      class="text-xs text-purple-500 transition-colors hover:text-purple-700 dark:text-purple-300 dark:hover:text-purple-200"
+                      @click="errorCodeFilter = 'all'"
+                    >
+                      清除
                     </button>
                   </div>
                 </div>
@@ -385,7 +408,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { showToast } from '@/utils/toast'
 import { apiClient } from '@/config/api'
 
@@ -416,6 +439,7 @@ const statusFilter = ref('all') // 'all' | 'active' | 'error'
 const searchQuery = ref('')
 const searchMode = ref('fuzzy') // 'fuzzy' | 'exact'
 const batchDeleting = ref(false)
+const errorCodeFilter = ref('all')
 
 // 掩码显示 API Key（提前声明供 computed 使用）
 const maskApiKey = (key) => {
@@ -425,6 +449,28 @@ const maskApiKey = (key) => {
   return `${key.substring(0, 8)}...${key.substring(key.length - 4)}`
 }
 
+const extractErrorCode = (message) => {
+  if (message === undefined || message === null) {
+    return ''
+  }
+  const normalized = String(message).trim()
+  if (!normalized) {
+    return ''
+  }
+  const match = normalized.match(/\d{3,}/)
+  return match ? match[0] : normalized
+}
+
+const resolveErrorCode = (rawCode, message) => {
+  if (rawCode !== undefined && rawCode !== null) {
+    const normalized = String(rawCode).trim()
+    if (normalized) {
+      return normalized
+    }
+  }
+  return extractErrorCode(message)
+}
+
 // 计算属性：筛选后的 API Keys
 const filteredApiKeys = computed(() => {
   let filtered = apiKeys.value
@@ -432,6 +478,13 @@ const filteredApiKeys = computed(() => {
   // 状态筛选
   if (statusFilter.value !== 'all') {
     filtered = filtered.filter((key) => key.status === statusFilter.value)
+  }
+
+  if (errorCodeFilter.value !== 'all') {
+    filtered = filtered.filter((key) => {
+      const code = key.errorCode || extractErrorCode(key.errorMessage)
+      return code === errorCodeFilter.value
+    })
   }
 
   // 搜索筛选（使用完整的 key 进行搜索）
@@ -470,6 +523,38 @@ const errorKeysCount = computed(() => {
   return apiKeys.value.filter((key) => key.status === 'error').length
 })
 
+const errorCodeOptions = computed(() => {
+  const codes = new Set()
+  apiKeys.value.forEach((key) => {
+    if (key.status === 'error') {
+      const code = key.errorCode || extractErrorCode(key.errorMessage)
+      if (code) {
+        codes.add(code)
+      }
+    }
+  })
+  return Array.from(codes).sort((a, b) => a.localeCompare(b))
+})
+
+watch([statusFilter, searchQuery, searchMode, errorCodeFilter], () => {
+  currentPage.value = 1
+})
+
+watch(statusFilter, (value) => {
+  if (value !== 'error' && errorCodeFilter.value !== 'all') {
+    errorCodeFilter.value = 'all'
+  }
+})
+
+watch(errorCodeOptions, (codes) => {
+  if (errorCodeFilter.value === 'all') {
+    return
+  }
+  if (!codes.includes(errorCodeFilter.value)) {
+    errorCodeFilter.value = 'all'
+  }
+})
+
 // 加载 API Keys
 const loadApiKeys = async () => {
   loading.value = true
@@ -498,16 +583,19 @@ const loadApiKeys = async () => {
           usageCount: 0,
           status: 'active',
           lastUsedAt: null,
-          errorMessage: ''
+          errorMessage: '',
+          errorCode: ''
         }
       } else if (typeof item === 'object' && item !== null) {
         // 对于对象类型的API Key，保留所有状态信息
+        const errorMessage = item.errorMessage || ''
         return {
           key: item.key || item.apiKey || '',
           usageCount: item.usageCount || item.count || 0,
           status: item.status || 'active', // 保留后端返回的状态
           lastUsedAt: item.lastUsedAt || item.lastUsed || null,
-          errorMessage: item.errorMessage || '' // 保留后端返回的错误信息
+          errorMessage, // 保留后端返回的错误信息
+          errorCode: resolveErrorCode(item.errorCode, errorMessage)
         }
       }
       // 其他情况，默认为active状态
@@ -516,7 +604,8 @@ const loadApiKeys = async () => {
         usageCount: 0,
         status: 'active',
         lastUsedAt: null,
-        errorMessage: ''
+        errorMessage: '',
+        errorCode: ''
       }
     })
 
