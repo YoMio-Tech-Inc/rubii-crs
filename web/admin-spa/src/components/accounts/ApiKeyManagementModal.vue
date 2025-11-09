@@ -556,12 +556,13 @@ const filteredErrorKeys = computed(() => {
   return filteredApiKeys.value.filter((key) => key.status === 'error')
 })
 
-const isClearErrorsDisabled = computed(
-  () =>
+const isClearErrorsDisabled = computed(() => {
+  return (
     statusFilter.value !== 'error' ||
     filteredErrorKeys.value.length === 0 ||
     bulkResetting.value
-)
+  )
+})
 
 watch([statusFilter, searchQuery, searchMode, errorCodeFilter], () => {
   currentPage.value = 1
