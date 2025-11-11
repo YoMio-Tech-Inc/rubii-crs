@@ -8,6 +8,7 @@ const redis = require('../models/redis')
 const { updateRateLimitCounters } = require('../utils/rateLimitHelper')
 const logger = require('../utils/logger')
 const runtimeAddon = require('../utils/runtimeAddon')
+const config = require('../../config/config')
 
 const SYSTEM_PROMPT = 'You are Droid, an AI software engineering agent built by Factory.'
 const RUNTIME_EVENT_FMT_PAYLOAD = 'fmtPayload'
@@ -28,6 +29,7 @@ class DroidRelayService {
     this.userAgent = 'factory-cli/0.19.12'
     this.systemPrompt = SYSTEM_PROMPT
     this.API_KEY_STICKY_PREFIX = 'droid_api_key'
+    this.sequentialMode = Boolean(config?.droid?.sequentialMode)
   }
 
   _normalizeEndpointType(endpointType) {
@@ -109,12 +111,30 @@ class DroidRelayService {
   }
 
   _composeApiKeyStickyKey(accountId, endpointType, sessionHash) {
+    if (this.sequentialMode) {
+      return null
+    }
+
     if (!accountId || !sessionHash) {
       return null
     }
 
     const normalizedEndpoint = this._normalizeEndpointType(endpointType)
     return `${this.API_KEY_STICKY_PREFIX}:${accountId}:${normalizedEndpoint}:${sessionHash}`
+  }
+
+  _sortApiKeyEntries(entries = []) {
+    return [...entries].sort((a, b) => {
+      const createdA = a?.createdAt ? new Date(a.createdAt).getTime() : 0
+      const createdB = b?.createdAt ? new Date(b.createdAt).getTime() : 0
+      if (createdA !== createdB) {
+        return createdA - createdB
+      }
+
+      const idA = String(a?.id || '')
+      const idB = String(b?.id || '')
+      return idA.localeCompare(idB)
+    })
   }
 
   async _selectApiKey(account, endpointType, sessionHash) {
@@ -129,7 +149,9 @@ class DroidRelayService {
       throw new Error(`Droid account ${account.id} 没有可用的 API Key（所有API Key均已异常）`)
     }
 
-    const stickyKey = this._composeApiKeyStickyKey(account.id, endpointType, sessionHash)
+    const stickyKey = this.sequentialMode
+      ? null
+      : this._composeApiKeyStickyKey(account.id, endpointType, sessionHash)
 
     if (stickyKey) {
       const mappedKeyId = await redis.getSessionAccountMapping(stickyKey)
@@ -146,7 +168,13 @@ class DroidRelayService {
       }
     }
 
-    const selectedEntry = activeEntries[Math.floor(Math.random() * activeEntries.length)]
+    let selectedEntry = null
+    if (this.sequentialMode) {
+      selectedEntry = this._sortApiKeyEntries(activeEntries)[0]
+    } else {
+      selectedEntry = activeEntries[Math.floor(Math.random() * activeEntries.length)]
+    }
+
     if (!selectedEntry) {
       throw new Error(`Droid account ${account.id} 没有可用的 API Key`)
     }
@@ -157,8 +185,9 @@ class DroidRelayService {
 
     await droidAccountService.touchApiKeyUsage(account.id, selectedEntry.id)
 
+    const selectionLabel = this.sequentialMode ? '顺序选取' : '随机选取'
     logger.info(
-      `🔐 随机选取 Droid API Key ${selectedEntry.id}（Account: ${account.id}, Active Keys: ${activeEntries.length}/${entries.length}）`
+      `🔐 ${selectionLabel} Droid API Key ${selectedEntry.id}（Account: ${account.id}, Active Keys: ${activeEntries.length}/${entries.length}）`
     )
 
     return selectedEntry

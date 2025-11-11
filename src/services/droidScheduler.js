@@ -2,10 +2,12 @@ const droidAccountService = require('./droidAccountService')
 const accountGroupService = require('./accountGroupService')
 const redis = require('../models/redis')
 const logger = require('../utils/logger')
+const config = require('../../config/config')
 
 class DroidScheduler {
   constructor() {
     this.STICKY_PREFIX = 'droid'
+    this.sequentialMode = Boolean(config?.droid?.sequentialMode)
   }
 
   _normalizeEndpointType(endpointType) {
@@ -62,6 +64,20 @@ class DroidScheduler {
   }
 
   _sortCandidates(candidates) {
+    if (this.sequentialMode) {
+      return [...candidates].sort((a, b) => {
+        const createdA = a?.createdAt ? new Date(a.createdAt).getTime() : 0
+        const createdB = b?.createdAt ? new Date(b.createdAt).getTime() : 0
+        if (createdA !== createdB) {
+          return createdA - createdB
+        }
+
+        const idA = String(a?.id || '')
+        const idB = String(b?.id || '')
+        return idA.localeCompare(idB)
+      })
+    }
+
     return [...candidates].sort((a, b) => {
       const priorityA = parseInt(a.priority, 10) || 50
       const priorityB = parseInt(b.priority, 10) || 50
@@ -135,7 +151,9 @@ class DroidScheduler {
 
   async selectAccount(apiKeyData, endpointType, sessionHash) {
     const normalizedEndpoint = this._normalizeEndpointType(endpointType)
-    const stickyKey = this._composeStickySessionKey(normalizedEndpoint, sessionHash, apiKeyData?.id)
+    const stickyKey = this.sequentialMode
+      ? null
+      : this._composeStickySessionKey(normalizedEndpoint, sessionHash, apiKeyData?.id)
 
     let candidates = []
     let isDedicatedBinding = false

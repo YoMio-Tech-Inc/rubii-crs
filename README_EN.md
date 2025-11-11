@@ -522,6 +522,9 @@ Both solutions are suitable for production deployment. If you use a Docker envir
 - **Regular Checks**: Check account status weekly, handle exceptions promptly
 - **Reasonable Allocation**: Can assign different API keys to different people, analyze usage based on different API keys
 
+### Droid Sequential Mode
+- Sequential scheduling is enabled by default. Set `DROID_SEQUENTIAL_MODE=false` if you prefer the legacy sticky/round-robin behavior. When the flag remains true, each Droid account pool (and its multi-key list) is consumed strictly by insertion order: the first account/key stays active until it is marked as error/unschedulable, then the system automatically advances to the next.
+
 ### Security Recommendations
 - **Use HTTPS**: Strongly recommend using Caddy reverse proxy (automatic HTTPS) to ensure secure data transmission
 - **Regular Backups**: Back up important configurations and data

@@ -121,6 +121,8 @@ const config = {
 
   // 🤖 Droid 相关配置
   droid: {
+    // 默认开启严格顺序调度，设置 DROID_SEQUENTIAL_MODE=false 可退回粘性/轮询模式
+    sequentialMode: process.env.DROID_SEQUENTIAL_MODE !== 'false',
     keyRecovery: {
       enabled: process.env.DROID_KEY_RECOVERY_ENABLED !== 'false', // 默认启用
       probePrompt: process.env.DROID_KEY_RECOVERY_PROMPT || 'Please say the single word "hello".',

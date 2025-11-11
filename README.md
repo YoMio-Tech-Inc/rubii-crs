@@ -590,6 +590,7 @@ gpt-5                      # Codex使用固定模型ID
 - `DROID_KEY_RECOVERY_MAX_CONCURRENCY`：单次最大探测 Key 数，默认 3
 - `DROID_KEY_RECOVERY_ANTHROPIC_MODEL` / `DROID_KEY_RECOVERY_OPENAI_MODEL`：探测使用的模型
 - `DROID_KEY_RECOVERY_PROMPT`：探测时的系统提示词
+- `DROID_SEQUENTIAL_MODE`：设为 `false` 可恢复旧的粘性会话/轮询策略；默认 `true` 时 Droid 账号与多 Key 将按添加顺序依次使用，仅在当前账号/Key 被标记为异常后才会切换
 
 无需额外操作即可使用，后台会自动定时探测与恢复。
 
