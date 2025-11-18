@@ -26,9 +26,10 @@ class DroidRelayService {
       openai: '/o/v1/responses'
     }
 
-    this.userAgent = 'factory-cli/0.19.12'
+    this.userAgent = 'factory-cli/0.26.3'
     this.systemPrompt = SYSTEM_PROMPT
     this.API_KEY_STICKY_PREFIX = 'droid_api_key'
+    this.stainlessPackageVersion = '0.57.0'
     this.sequentialMode = Boolean(config?.droid?.sequentialMode)
   }
 
@@ -260,6 +261,8 @@ class DroidRelayService {
         logger.info(`🌐 Using proxy: ${ProxyHelper.getProxyDescription(proxyConfig)}`)
       }
 
+      const streamRequested = !disableStreaming && this._isStreamRequested(normalizedRequestBody)
+
       // 构建请求头
       const headers = this._buildHeaders(
         accessToken,
@@ -275,8 +278,6 @@ class DroidRelayService {
       }
 
       // 处理请求体（注入 system prompt 等）
-      const streamRequested = !disableStreaming && this._isStreamRequested(normalizedRequestBody)
-
       let processedBody = this._processRequestBody(normalizedRequestBody, normalizedEndpoint, {
         disableStreaming,
         streamRequested
@@ -932,7 +933,8 @@ class DroidRelayService {
       authorization: `Bearer ${accessToken}`,
       'user-agent': this.userAgent,
       'x-factory-client': 'cli',
-      connection: 'keep-alive'
+      connection: 'keep-alive',
+      'accept-encoding': 'gzip, deflate, br, zstd'
     }
 
     // Anthropic 特定头
@@ -941,6 +943,7 @@ class DroidRelayService {
       headers['anthropic-version'] = '2023-06-01'
       headers['x-api-key'] = 'placeholder'
       headers['x-api-provider'] = 'anthropic'
+      headers['x-assistant-message-id'] = this._generateAssistantMessageId()
 
       if (this._isThinkingRequested(requestBody)) {
         headers['anthropic-beta'] = 'interleaved-thinking-2025-05-14'
@@ -955,7 +958,27 @@ class DroidRelayService {
     // 生成会话 ID（如果客户端没有提供）
     headers['x-session-id'] = clientHeaders['x-session-id'] || this._generateUUID()
 
+    Object.assign(headers, this._getStainlessHeaders())
+
     return headers
+  }
+
+  _getStainlessHeaders() {
+    return {
+      'x-stainless-arch': 'arm64',
+      'x-stainless-helper-method': 'stream',
+      'x-stainless-lang': 'js',
+      'x-stainless-os': 'MacOS',
+      'x-stainless-package-version': this.stainlessPackageVersion,
+      'x-stainless-retry-count': '0',
+      'x-stainless-runtime': 'node',
+      'x-stainless-runtime-version': 'v24.3.0',
+      'x-stainless-timeout': '600'
+    }
+  }
+
+  _generateAssistantMessageId() {
+    return `warmup-${Date.now()}`
   }
 
   /**
