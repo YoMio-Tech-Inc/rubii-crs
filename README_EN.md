@@ -525,6 +525,10 @@ Both solutions are suitable for production deployment. If you use a Docker envir
 ### Droid Sequential Mode
 - Sequential scheduling is enabled by default. Set `DROID_SEQUENTIAL_MODE=false` if you prefer the legacy sticky/round-robin behavior. When the flag remains true, each Droid account pool (and its multi-key list) is consumed strictly by insertion order: the first account/key stays active until it is marked as error/unschedulable, then the system automatically advances to the next.
 
+### Inspecting Droid Requests
+- Set `DROID_LOG_REQUESTS=true` when you want the service to emit the actual HTTP request headers/body sent to `Factory.ai` in the logs (useful for checking the disguise). This is disabled by default.
+- `DROID_REQUEST_LOG_MAX_LENGTH` controls how many characters of the request body are kept in the log before truncation; it defaults to `2000` to avoid spamming the logs when the payload is large.
+
 ### Security Recommendations
 - **Use HTTPS**: Strongly recommend using Caddy reverse proxy (automatic HTTPS) to ensure secure data transmission
 - **Regular Backups**: Back up important configurations and data

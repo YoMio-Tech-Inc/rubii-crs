@@ -123,6 +123,9 @@ const config = {
   droid: {
     // 默认开启严格顺序调度，设置 DROID_SEQUENTIAL_MODE=false 可退回粘性/轮询模式
     sequentialMode: process.env.DROID_SEQUENTIAL_MODE !== 'false',
+    // 调试时启用可在日志里打印真实请求以检查伪装，默认关闭
+    logRequests: process.env.DROID_LOG_REQUESTS === 'true',
+    requestLogMaxLength: parseInt(process.env.DROID_REQUEST_LOG_MAX_LENGTH || '2000', 10),
     keyRecovery: {
       enabled: process.env.DROID_KEY_RECOVERY_ENABLED !== 'false', // 默认启用
       probePrompt: process.env.DROID_KEY_RECOVERY_PROMPT || 'Please say the single word "hello".',

@@ -8,6 +8,7 @@ const redis = require('../models/redis')
 const { updateRateLimitCounters } = require('../utils/rateLimitHelper')
 const logger = require('../utils/logger')
 const runtimeAddon = require('../utils/runtimeAddon')
+const { maskToken } = require('../utils/tokenMask')
 const config = require('../../config/config')
 
 const SYSTEM_PROMPT = 'You are Droid, an AI software engineering agent built by Factory.'
@@ -31,6 +32,15 @@ class DroidRelayService {
     this.API_KEY_STICKY_PREFIX = 'droid_api_key'
     this.stainlessPackageVersion = '0.57.0'
     this.sequentialMode = Boolean(config?.droid?.sequentialMode)
+    const droidConfig = config?.droid || {}
+    const configLogRequests =
+      droidConfig.logRequests === true ||
+      (typeof droidConfig.logRequests === 'string' &&
+        droidConfig.logRequests.toLowerCase() === 'true')
+    this.logRequests = configLogRequests || process.env.DROID_LOG_REQUESTS === 'true'
+    this.requestLogMaxLength = this._resolveRequestLogMaxLength(
+      droidConfig.requestLogMaxLength ?? process.env.DROID_REQUEST_LOG_MAX_LENGTH
+    )
   }
 
   _normalizeEndpointType(endpointType) {
@@ -86,6 +96,81 @@ class DroidRelayService {
     }
 
     return normalizedBody
+  }
+
+  _resolveRequestLogMaxLength(value) {
+    if (value === undefined || value === null) {
+      return 2000
+    }
+
+    const parsed =
+      typeof value === 'number' ? value : parseInt(String(value).trim(), 10)
+
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed
+    }
+
+    return 2000
+  }
+
+  _serializeBodyForLog(body) {
+    if (body === undefined || body === null) {
+      return ''
+    }
+
+    if (typeof body === 'string') {
+      return body
+    }
+
+    try {
+      return JSON.stringify(body)
+    } catch (error) {
+      return String(body)
+    }
+  }
+
+  _truncateForLog(value) {
+    const text = value === undefined || value === null ? '' : String(value)
+    if (!this.requestLogMaxLength || text.length <= this.requestLogMaxLength) {
+      return text
+    }
+
+    return `${text.slice(0, this.requestLogMaxLength)}... [truncated ${text.length -
+      this.requestLogMaxLength} chars]`
+  }
+
+  _sanitizeHeadersForLog(headers = {}) {
+    const sanitized = {}
+    for (const [key, val] of Object.entries(headers || {})) {
+      if (typeof val === 'string' && key.toLowerCase() === 'authorization') {
+        sanitized[key] = maskToken(val)
+      } else {
+        sanitized[key] = val
+      }
+    }
+    return sanitized
+  }
+
+  _logFactoryRequest(apiUrl, headers, body, contextLabel = '') {
+    if (!this.logRequests) {
+      return
+    }
+
+    const rawBody = this._serializeBodyForLog(body)
+    const truncatedBody = this._truncateForLog(rawBody)
+    const sanitizedHeaders = this._sanitizeHeadersForLog(headers)
+    const logMeta = {
+      method: 'POST',
+      url: apiUrl,
+      headers: sanitizedHeaders,
+      body: truncatedBody,
+      bodyLength: rawBody.length
+    }
+    if (contextLabel) {
+      logMeta.context = contextLabel
+    }
+
+    logger.info('🛰️ Factory.ai outgoing request', logMeta)
   }
 
   async _applyRateLimitTracking(rateLimitInfo, usageSummary, model, context = '') {
@@ -344,6 +429,7 @@ class DroidRelayService {
           })
         }
 
+        this._logFactoryRequest(apiUrl, headers, processedBody, 'non-streaming')
         const response = await axios(requestOptions)
 
         logger.info(`✅ Factory.ai response status: ${response.status}`)
@@ -428,6 +514,8 @@ class DroidRelayService {
         ...headers,
         'content-length': contentLength.toString()
       }
+
+      this._logFactoryRequest(apiUrl, requestHeaders, processedBody, 'streaming')
 
       let responseStarted = false
       let responseCompleted = false

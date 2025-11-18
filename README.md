@@ -591,6 +591,8 @@ gpt-5                      # Codex使用固定模型ID
 - `DROID_KEY_RECOVERY_ANTHROPIC_MODEL` / `DROID_KEY_RECOVERY_OPENAI_MODEL`：探测使用的模型
 - `DROID_KEY_RECOVERY_PROMPT`：探测时的系统提示词
 - `DROID_SEQUENTIAL_MODE`：设为 `false` 可恢复旧的粘性会话/轮询策略；默认 `true` 时 Droid 账号与多 Key 将按添加顺序依次使用，仅在当前账号/Key 被标记为异常后才会切换
+- `DROID_LOG_REQUESTS`：设为 `true` 会在日志里输出实际发往 Factory.ai 的请求（包括 headers/body），配合 `DROID_REQUEST_LOG_MAX_LENGTH` 可截断过长的部分，默认关闭
+- `DROID_REQUEST_LOG_MAX_LENGTH`：调试日志中请求体的最大字符数，超过会被截断并提示剩余长度，默认 `2000`
 
 无需额外操作即可使用，后台会自动定时探测与恢复。
 
