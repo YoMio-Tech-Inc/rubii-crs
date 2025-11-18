@@ -1,8 +1,7 @@
 const axios = require('axios')
-const { randomUUID } = require('crypto')
-
 const config = require('../../config/config')
 const droidAccountService = require('./droidAccountService')
+const droidRelayService = require('./droidRelayService')
 const ProxyHelper = require('../utils/proxyHelper')
 const logger = require('../utils/logger')
 
@@ -195,8 +194,12 @@ class DroidApiKeyRecoveryService {
   async _sendProbeRequest({ endpointType, apiKey, proxy }) {
     const endpointPath = this.endpoints[endpointType] || this.endpoints.anthropic
     const url = `${this.factoryApiBaseUrl}${endpointPath}`
-    const headers = this._buildHeaders(apiKey, endpointType)
-    const data = this._buildProbePayload(endpointType)
+    const payload = this._buildProbePayload(endpointType)
+    const processedPayload = droidRelayService._processRequestBody(payload, endpointType, {
+      disableStreaming: true,
+      streamRequested: false
+    })
+    const headers = droidRelayService._buildHeaders(apiKey, processedPayload, endpointType)
 
     let proxyAgent = null
     if (proxy) {
@@ -212,7 +215,7 @@ class DroidApiKeyRecoveryService {
       method: 'POST',
       url,
       headers,
-      data,
+      data: processedPayload,
       timeout: Math.max(Math.min(this.requestTimeoutMs, 60000), 5000),
       validateStatus: () => true,
       ...(proxyAgent && {
@@ -260,28 +263,6 @@ class DroidApiKeyRecoveryService {
       system: [{ type: 'text', text: this.probePrompt }],
       stream: false
     }
-  }
-
-  _buildHeaders(apiKey, endpointType) {
-    const headers = {
-      'content-type': 'application/json',
-      authorization: `Bearer ${apiKey}`,
-      'user-agent': 'droid-key-recovery/1.0.0',
-      'x-factory-client': 'cli',
-      accept: 'application/json',
-      connection: 'keep-alive',
-      'x-session-id': randomUUID()
-    }
-
-    if (endpointType === 'anthropic') {
-      headers['anthropic-version'] = '2023-06-01'
-      headers['x-api-key'] = 'placeholder'
-      headers['x-api-provider'] = 'anthropic'
-    } else if (endpointType === 'openai') {
-      headers['x-api-provider'] = 'azure_openai'
-    }
-
-    return headers
   }
 
   _extractResponseText(data) {
