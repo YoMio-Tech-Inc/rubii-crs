@@ -151,6 +151,15 @@ class DroidRelayService {
     return sanitized
   }
 
+  _normalizeUpstreamErrorDetails(details) {
+    if (details === undefined || details === null) {
+      return ''
+    }
+
+    const serialized = this._serializeBodyForLog(details)
+    return this._truncateForLog(serialized).trim()
+  }
+
   _logFactoryRequest(apiUrl, headers, body, contextLabel = '') {
     if (!this.logRequests) {
       return
@@ -449,6 +458,9 @@ class DroidRelayService {
       logger.error(`❌ Droid relay error: ${error.message}`, error)
 
       const status = error?.response?.status
+      const upstreamErrorDetails = this._normalizeUpstreamErrorDetails(
+        error?.response?.data ?? error?.message
+      )
       if (status >= 400 && status < 500) {
         try {
           await this._handleUpstreamClientError(status, {
@@ -456,7 +468,8 @@ class DroidRelayService {
             selectedAccountApiKey: selectedApiKey,
             endpointType: normalizedEndpoint,
             sessionHash,
-            clientApiKeyId
+            clientApiKeyId,
+            upstreamErrorDetails
           })
         } catch (handlingError) {
           logger.error('❌ 处理 Droid 4xx 异常失败:', handlingError)
@@ -628,7 +641,8 @@ class DroidRelayService {
                 selectedAccountApiKey,
                 endpointType,
                 sessionHash,
-                clientApiKeyId
+                clientApiKeyId,
+                upstreamErrorDetails: this._normalizeUpstreamErrorDetails(body)
               }).catch((handlingError) => {
                 logger.error('❌ 处理 Droid 流式4xx 异常失败:', handlingError)
               })
@@ -1297,8 +1311,15 @@ class DroidRelayService {
       selectedAccountApiKey = null,
       endpointType = null,
       sessionHash = null,
-      clientApiKeyId = null
+      clientApiKeyId = null,
+      upstreamErrorDetails = ''
     } = context
+
+    const normalizedErrorDetail = this._normalizeUpstreamErrorDetails(upstreamErrorDetails)
+    const errorMessage = normalizedErrorDetail
+      ? `${statusCode} - ${normalizedErrorDetail}`
+      : `${statusCode}`
+    const detailSuffix = normalizedErrorDetail ? `（详情：${normalizedErrorDetail}）` : ''
 
     const accountId = this._extractAccountId(account)
     if (!accountId) {
@@ -1317,7 +1338,6 @@ class DroidRelayService {
     if (authMethod === 'api_key') {
       if (selectedAccountApiKey?.id) {
         let markResult = null
-        const errorMessage = `${statusCode}`
 
         try {
           // 标记API Key为异常状态而不是删除
@@ -1337,11 +1357,11 @@ class DroidRelayService {
 
         if (markResult?.marked) {
           logger.warn(
-            `⚠️ 上游返回 ${statusCode}，已标记 Droid API Key ${selectedAccountApiKey.id} 为异常状态（Account: ${accountId}）`
+            `⚠️ 上游返回 ${statusCode}${detailSuffix}，已标记 Droid API Key ${selectedAccountApiKey.id} 为异常状态（Account: ${accountId}）`
           )
         } else {
           logger.warn(
-            `⚠️ 上游返回 ${statusCode}，但未能标记 Droid API Key ${selectedAccountApiKey.id} 异常状态（Account: ${accountId}）：${markResult?.error || '未知错误'}`
+            `⚠️ 上游返回 ${statusCode}${detailSuffix}，但未能标记 Droid API Key ${selectedAccountApiKey.id} 异常状态（Account: ${accountId}）：${markResult?.error || '未知错误'}`
           )
         }
 
@@ -1366,7 +1386,7 @@ class DroidRelayService {
       }
 
       logger.warn(
-        `⚠️ 上游返回 ${statusCode}，但未获取到对应的 Droid API Key（Account: ${accountId}）`
+        `⚠️ 上游返回 ${statusCode}${detailSuffix}，但未获取到对应的 Droid API Key（Account: ${accountId}）`
       )
       await this._stopDroidAccountScheduling(accountId, statusCode, '缺少可用 API Key')
       await this._clearAccountStickyMapping(normalizedEndpoint, sessionHash, clientApiKeyId)

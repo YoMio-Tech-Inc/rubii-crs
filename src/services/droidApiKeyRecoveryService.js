@@ -346,17 +346,57 @@ class DroidApiKeyRecoveryService {
       return 'unknown'
     }
     if (error.response) {
-      const status = error.response.status
-      const message =
-        typeof error.response.data === 'string'
-          ? error.response.data
-          : error.response.data?.error || error.message
-      return `HTTP ${status}: ${message}`
+      const { status, statusText, data } = error.response
+      const detail = this._formatResponseData(data) || error.message
+      const statusSuffix = statusText ? ` ${statusText}` : ''
+      return `HTTP ${status}${statusSuffix}: ${detail}`
     }
     if (error.code) {
       return `${error.code} (${error.message || 'network error'})`
     }
     return error.message || 'unknown error'
+  }
+
+  _formatResponseData(data) {
+    if (!data) {
+      return ''
+    }
+
+    if (typeof data === 'string' && data.trim()) {
+      return this._truncateMessage(data.trim())
+    }
+
+    if (typeof data === 'object') {
+      const candidates = [
+        data.error?.message,
+        data.error?.error,
+        data.message,
+        data.detail,
+        data.body,
+        data.errors && Array.isArray(data.errors) ? data.errors[0]?.message : undefined
+      ]
+
+      for (const candidate of candidates) {
+        if (typeof candidate === 'string' && candidate.trim()) {
+          return this._truncateMessage(candidate.trim())
+        }
+      }
+
+      try {
+        return this._truncateMessage(JSON.stringify(data))
+      } catch (error) {
+        return ''
+      }
+    }
+
+    return ''
+  }
+
+  _truncateMessage(message, maxLength = 400) {
+    if (message.length <= maxLength) {
+      return message
+    }
+    return `${message.slice(0, maxLength - 3)}...`
   }
 
   _normalizeEndpointType(endpointType) {
