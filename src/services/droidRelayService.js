@@ -160,6 +160,15 @@ class DroidRelayService {
     return this._truncateForLog(serialized).trim()
   }
 
+  _shouldSkipApiKeyDisable(statusCode, normalizedErrorDetail = '') {
+    if (statusCode !== 401) {
+      return false
+    }
+
+    const detailText = normalizedErrorDetail ? String(normalizedErrorDetail).toLowerCase() : ''
+    return detailText.includes('org not found for api key')
+  }
+
   _logFactoryRequest(apiUrl, headers, body, contextLabel = '') {
     if (!this.logRequests) {
       return
@@ -1324,6 +1333,19 @@ class DroidRelayService {
     const accountId = this._extractAccountId(account)
     if (!accountId) {
       logger.warn('⚠️ 上游 4xx 处理被跳过：缺少有效的账户信息')
+      return
+    }
+
+    if (this._shouldSkipApiKeyDisable(statusCode, normalizedErrorDetail)) {
+      if (selectedAccountApiKey?.id) {
+        logger.warn(
+          `⚠️ 上游返回 ${statusCode}${detailSuffix}，检测到 Org Not Found 错误，跳过禁用 Droid API Key ${selectedAccountApiKey.id}（Account: ${accountId}）`
+        )
+      } else {
+        logger.warn(
+          `⚠️ 上游返回 ${statusCode}${detailSuffix}，检测到 Org Not Found 错误，跳过禁用 Droid 账号 ${accountId}`
+        )
+      }
       return
     }
 
